@@ -6,6 +6,7 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.test import Client, TestCase
 from django.utils import timezone
+from rest_framework.test import APIClient
 
 from apps.fleet.admin import ContractAdmin
 from apps.fleet.models import Car, Contract, Driver, Payment
@@ -513,3 +514,222 @@ class HealthCheckRouteTests(TestCase):
             response.json(),
             {"status": "ok", "service": "carenda_backend"},
         )
+
+
+class FleetAPIIntegrationTests(TestCase):
+    def setUp(self):
+        self.client_a = APIClient()
+        self.user_a = User.objects.create_user(
+            username="tenant_a",
+            full_name="Tenant A",
+            phone="+998901111111",
+            telegram_id=111111111,
+            cars_limit=5,
+            expires_at=timezone.now() + timedelta(days=60),
+        )
+        UserSetting.objects.create(
+            owner=self.user_a, default_annual_percent=Decimal("20.00")
+        )
+        self.client_a.force_authenticate(user=self.user_a)
+
+        self.client_b = APIClient()
+        self.user_b = User.objects.create_user(
+            username="tenant_b",
+            full_name="Tenant B",
+            phone="+998902222222",
+            telegram_id=222222222,
+            cars_limit=5,
+            expires_at=timezone.now() + timedelta(days=60),
+        )
+        UserSetting.objects.create(
+            owner=self.user_b, default_annual_percent=Decimal("20.00")
+        )
+        self.client_b.force_authenticate(user=self.user_b)
+
+    def test_full_fleet_api_lifecycle(self):
+        # 1. Create Car via API
+        car_resp = self.client_a.post(
+            "/api/v1/cars/",
+            {
+                "name": "Chevrolet Tracker Turbo",
+                "plate_number": "01T888TT",
+                "default_price": "19000.00",
+            },
+            format="json",
+        )
+        self.assertEqual(car_resp.status_code, 201)
+        car_id = car_resp.json()["id"]
+
+        # 2. Preview calculation endpoint
+        calc_resp = self.client_a.post(
+            "/api/v1/contracts/calculate/",
+            {
+                "car_price": "5000.00",
+                "initial_payment": "2000.00",
+                "months_count": 12,
+                # annual_percent omitted to test fallback to 20.00%
+            },
+            format="json",
+        )
+        self.assertEqual(calc_resp.status_code, 200)
+        calc_data = calc_resp.json()
+        self.assertEqual(calc_data["principal_amount"], "3000.00")
+        self.assertEqual(calc_data["total_amount"], "3600.00")
+        self.assertEqual(calc_data["monthly_amount"], "300.00")
+
+        # 3. Create Contract with inline driver creation
+        today = timezone.localdate()
+        contract_resp = self.client_a.post(
+            "/api/v1/contracts/",
+            {
+                "car_id": car_id,
+                "driver_full_name": "Haydovchi Olim",
+                "driver_phone": "+998939998877",
+                "car_price": "5000.00",
+                "initial_payment": "2000.00",
+                "annual_percent": "25.00",
+                "months_count": 12,
+                "payment_day": 15,
+                "start_date": str(today - timedelta(days=75)),  # past start_date so month 2 is overdue
+            },
+            format="json",
+        )
+        self.assertEqual(contract_resp.status_code, 201)
+        contract_data = contract_resp.json()
+        contract_id = contract_data["id"]
+        self.assertEqual(contract_data["monthly_amount"], "312.50")
+        self.assertEqual(len(contract_data["payments"]), 12)
+
+        # 4. Verify Car Detail includes active_contract with payments schedule
+        car_detail_resp = self.client_a.get(f"/api/v1/cars/{car_id}/")
+        self.assertEqual(car_detail_resp.status_code, 200)
+        car_detail_data = car_detail_resp.json()
+        self.assertEqual(car_detail_data["status"], "rented")
+        self.assertIsNotNone(car_detail_data["active_contract"])
+        self.assertEqual(
+            len(car_detail_data["active_contract"]["payments"]), 12
+        )
+
+        first_payment = car_detail_data["active_contract"]["payments"][0]
+        first_payment_id = first_payment["id"]
+
+        # 5. Record Partial Payment (100.00 out of 312.50)
+        pay_part_resp = self.client_a.post(
+            f"/api/v1/payments/{first_payment_id}/pay/",
+            {"amount": "100.00", "comment": "Qisman to'landi"},
+            format="json",
+        )
+        self.assertEqual(pay_part_resp.status_code, 200)
+        pay_part_data = pay_part_resp.json()
+        self.assertEqual(pay_part_data["status"], "partial")
+        self.assertEqual(pay_part_data["paid_amount"], "100.00")
+        self.assertEqual(pay_part_data["remaining_amount"], "212.50")
+
+        # 6. Complete remaining payment (212.50)
+        pay_full_resp = self.client_a.post(
+            f"/api/v1/payments/{first_payment_id}/pay/",
+            {"amount": "212.50", "comment": "Qolgani to'landi"},
+            format="json",
+        )
+        self.assertEqual(pay_full_resp.status_code, 200)
+        pay_full_data = pay_full_resp.json()
+        self.assertEqual(pay_full_data["status"], "paid")
+        self.assertEqual(pay_full_data["remaining_amount"], "0.00")
+
+        # 7. Verify Dashboard Endpoint
+        dash_resp = self.client_a.get("/api/v1/dashboard/")
+        self.assertEqual(dash_resp.status_code, 200)
+        dash_data = dash_resp.json()
+        self.assertEqual(dash_data["total_cars"], 1)
+        self.assertEqual(dash_data["rented_cars"], 1)
+        self.assertEqual(dash_data["active_contracts_count"], 1)
+        self.assertEqual(dash_data["total_collected_usd"], "312.50")
+
+        # 8. Verify Overdue Payments Endpoint
+        overdue_resp = self.client_a.get("/api/v1/payments/overdue/")
+        self.assertEqual(overdue_resp.status_code, 200)
+        overdue_items = overdue_resp.json()
+        self.assertTrue(len(overdue_items) >= 1)
+        # Verify fields on overdue item
+        item = overdue_items[0]
+        self.assertIn("car_name", item)
+        self.assertIn("plate_number", item)
+        self.assertIn("driver_name", item)
+        self.assertIn("remaining_amount", item)
+        self.assertIn("days_overdue", item)
+
+        # 9. Close Contract
+        close_resp = self.client_a.post(
+            f"/api/v1/contracts/{contract_id}/close/",
+            {"close_note": "Muvaffaqiyatli topshirildi"},
+            format="json",
+        )
+        self.assertEqual(close_resp.status_code, 200)
+        close_data = close_resp.json()
+        self.assertFalse(close_data["is_active"])
+
+        # Car should be available again
+        car_check = self.client_a.get(f"/api/v1/cars/{car_id}/").json()
+        self.assertEqual(car_check["status"], "available")
+
+        # 10. Attempting to delete car that has contracts should return 400
+        del_fail_resp = self.client_a.delete(f"/api/v1/cars/{car_id}/")
+        self.assertEqual(del_fail_resp.status_code, 400)
+        self.assertIn("o'chirib bo'lmaydi", del_fail_resp.json()["detail"])
+
+    def test_cross_tenant_isolation(self):
+        # Create car, driver and contract under tenant A
+        car_a = create_car_service(
+            owner=self.user_a,
+            name="Car A",
+            plate_number="01A999AA",
+        )
+        driver_a = Driver.objects.create(
+            owner=self.user_a,
+            full_name="Driver A",
+            phone="+998901234567",
+        )
+        contract_a = create_contract_service(
+            owner=self.user_a,
+            car=car_a,
+            driver=driver_a,
+            car_price=Decimal("10000.00"),
+            initial_payment=Decimal("2000.00"),
+            annual_percent=Decimal("20.00"),
+            months_count=6,
+            payment_day=10,
+            start_date=timezone.localdate(),
+        )
+        payment_a = contract_a.payments.first()
+
+        # Tenant B cannot access Tenant A's car
+        self.assertEqual(
+            self.client_b.get(f"/api/v1/cars/{car_a.id}/").status_code, 404
+        )
+        self.assertEqual(
+            self.client_b.delete(f"/api/v1/cars/{car_a.id}/").status_code, 404
+        )
+
+        # Tenant B cannot access Tenant A's driver
+        self.assertEqual(
+            self.client_b.get(f"/api/v1/drivers/{driver_a.id}/").status_code, 404
+        )
+
+        # Tenant B cannot access Tenant A's contract
+        self.assertEqual(
+            self.client_b.get(f"/api/v1/contracts/{contract_a.id}/").status_code, 404
+        )
+        self.assertEqual(
+            self.client_b.post(f"/api/v1/contracts/{contract_a.id}/close/").status_code, 404
+        )
+
+        # Tenant B cannot record payment on Tenant A's installment
+        self.assertEqual(
+            self.client_b.post(
+                f"/api/v1/payments/{payment_a.id}/pay/",
+                {"amount": "50.00"},
+                format="json",
+            ).status_code,
+            404,
+        )
+

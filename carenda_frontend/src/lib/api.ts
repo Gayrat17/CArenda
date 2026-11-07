@@ -1,3 +1,24 @@
+import {
+  CalculatePayload,
+  CalculateResponse,
+  CarCreatePayload,
+  CarDetail,
+  CarListItem,
+  CarUpdatePayload,
+  CloseContractPayload,
+  Contract,
+  ContractSummary,
+  CreateContractPayload,
+  DashboardResponse,
+  Driver,
+  DriverCreatePayload,
+  MeResponse,
+  MeUpdateRequest,
+  OverduePaymentItem,
+  Payment,
+  RecordPaymentPayload,
+} from "@/types/fleet";
+
 declare global {
   interface Window {
     Telegram?: {
@@ -22,16 +43,18 @@ export async function apiFetch<T>(
   const cleanEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
   const url = `${API_BASE_URL}${cleanEndpoint}`;
 
-  const initData =
-    typeof window !== "undefined"
-      ? window.Telegram?.WebApp?.initData || ""
-      : "";
+  // Read Telegram initData or fallback to 'dev' for browser testing
+  let initData = "";
+  if (typeof window !== "undefined") {
+    initData = window.Telegram?.WebApp?.initData?.trim() || "";
+  }
+  const authHeaderValue = initData ? `tma ${initData}` : "tma dev";
 
   const headers = new Headers(options.headers || {});
   if (!headers.has("Content-Type") && !(options.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
   }
-  headers.set("Authorization", `tma ${initData}`);
+  headers.set("Authorization", authHeaderValue);
 
   const response = await fetch(url, {
     ...options,
@@ -50,5 +73,118 @@ export async function apiFetch<T>(
     throw new Error(errorBody || `HTTP error ${response.status}`);
   }
 
+  // Handle 204 No Content
+  if (response.status === 204) {
+    return {} as T;
+  }
+
   return response.json() as Promise<T>;
+}
+
+// User & Settings
+export async function getMe(): Promise<MeResponse> {
+  return apiFetch<MeResponse>("/me/");
+}
+
+export async function updateMe(payload: MeUpdateRequest): Promise<MeResponse> {
+  return apiFetch<MeResponse>("/me/", {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+// Dashboard
+export async function getDashboard(): Promise<DashboardResponse> {
+  return apiFetch<DashboardResponse>("/dashboard/");
+}
+
+// Fleet / Cars
+export async function getCars(): Promise<CarListItem[]> {
+  return apiFetch<CarListItem[]>("/cars/");
+}
+
+export async function getCarDetail(carId: number): Promise<CarDetail> {
+  return apiFetch<CarDetail>(`/cars/${carId}/`);
+}
+
+export async function createCar(payload: CarCreatePayload): Promise<CarDetail> {
+  return apiFetch<CarDetail>("/cars/", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateCar(
+  carId: number,
+  payload: CarUpdatePayload
+): Promise<CarDetail> {
+  return apiFetch<CarDetail>(`/cars/${carId}/`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+// Drivers
+export async function getDrivers(): Promise<Driver[]> {
+  return apiFetch<Driver[]>("/drivers/");
+}
+
+export async function createDriver(
+  payload: DriverCreatePayload
+): Promise<Driver> {
+  return apiFetch<Driver>("/drivers/", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+// Contracts & Calculations
+export async function calculateContractPreview(
+  payload: CalculatePayload
+): Promise<CalculateResponse> {
+  return apiFetch<CalculateResponse>("/contracts/calculate/", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getContracts(
+  isActive?: boolean
+): Promise<ContractSummary[]> {
+  const query = isActive !== undefined ? `?is_active=${isActive}` : "";
+  return apiFetch<ContractSummary[]>(`/contracts/${query}`);
+}
+
+export async function createContract(
+  payload: CreateContractPayload
+): Promise<Contract> {
+  return apiFetch<Contract>("/contracts/", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function closeContract(
+  contractId: number,
+  payload?: CloseContractPayload
+): Promise<ContractSummary> {
+  return apiFetch<ContractSummary>(`/contracts/${contractId}/close/`, {
+    method: "POST",
+    body: JSON.stringify(payload || {}),
+  });
+}
+
+// Payments
+export async function getOverduePayments(): Promise<OverduePaymentItem[]> {
+  return apiFetch<OverduePaymentItem[]>("/payments/overdue/");
+}
+
+export async function recordPayment(
+  paymentId: number,
+  payload: RecordPaymentPayload
+): Promise<Payment> {
+  return apiFetch<Payment>(`/payments/${paymentId}/pay/`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
