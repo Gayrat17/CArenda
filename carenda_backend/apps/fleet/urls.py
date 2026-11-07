@@ -10,6 +10,7 @@ from apps.fleet.views import (
     DashboardAPIView,
     DriverDetailAPIView,
     DriverListCreateAPIView,
+    ExportExcelAPIView,
     OverduePaymentsAPIView,
     PaymentPayAPIView,
 )
@@ -17,6 +18,9 @@ from apps.fleet.views import (
 urlpatterns = [
     # Dashboard
     path("dashboard/", DashboardAPIView.as_view(), name="fleet-dashboard"),
+
+    # Excel Export
+    path("export/excel/", ExportExcelAPIView.as_view(), name="fleet-export-excel"),
 
     # Cars
     path("cars/", CarListCreateAPIView.as_view(), name="fleet-cars-list-create"),

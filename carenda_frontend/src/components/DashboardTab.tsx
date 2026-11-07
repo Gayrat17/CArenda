@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import {
   TrendingUp,
   DollarSign,
@@ -10,9 +10,12 @@ import {
   CheckCircle2,
   ShieldCheck,
   Car,
+  FileSpreadsheet,
+  Download,
 } from "lucide-react";
 import { DashboardResponse, OverduePaymentItem, User } from "@/types/fleet";
 import { formatDate, formatUSD } from "@/lib/utils";
+import { downloadExcelReport } from "@/lib/api";
 
 interface DashboardTabProps {
   user: User | null;
@@ -30,6 +33,19 @@ export function DashboardTab({
   onPaymentClick,
   onNavigateTab,
 }: DashboardTabProps) {
+  const [downloadingExcel, setDownloadingExcel] = useState(false);
+
+  const handleDownloadExcel = async () => {
+    try {
+      setDownloadingExcel(true);
+      await downloadExcelReport();
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Excel hisobotini yuklab olishda xatolik.");
+    } finally {
+      setDownloadingExcel(false);
+    }
+  };
+
   if (loading && !dashboard) {
     return (
       <div className="py-20 flex flex-col items-center justify-center text-slate-400 gap-2">
@@ -129,6 +145,16 @@ export function DashboardTab({
             <p className="text-[10px] text-slate-400">Parkdagi avtomobillar</p>
           </div>
         </div>
+
+        {/* Excel Export Button */}
+        <button
+          onClick={handleDownloadExcel}
+          disabled={downloadingExcel}
+          className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/80 rounded-2xl text-xs font-semibold transition disabled:opacity-50"
+        >
+          <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+          {downloadingExcel ? "Excel tayyorlanmoqda..." : "📥 Excel (.xlsx) hisobotini yuklab olish"}
+        </button>
       </div>
 
       {/* Overdue / Due Today Payments Section */}

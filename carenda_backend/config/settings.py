@@ -36,6 +36,7 @@ INSTALLED_APPS = [
     # Local apps
     'apps.users',
     'apps.fleet',
+    'apps.bot',
 ]
 
 MIDDLEWARE = [
@@ -124,6 +125,7 @@ TELEGRAM_BOT_TOKEN = config(
     "BOT_TOKEN",
     default=config("TELEGRAM_BOT_TOKEN", default="dev_bot_token_123456"),
 )
+WEBAPP_URL = config("WEBAPP_URL", default="http://localhost:3000")
 
 # Django Rest Framework Configuration
 REST_FRAMEWORK = {

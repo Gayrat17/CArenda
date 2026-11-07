@@ -733,3 +733,121 @@ class FleetAPIIntegrationTests(TestCase):
             404,
         )
 
+
+class ExcelExportAndNotificationTests(TestCase):
+    def setUp(self):
+        self.client_a = APIClient()
+        self.user_a = User.objects.create_user(
+            username="excel_user_a",
+            full_name="Excel User A",
+            phone="+998901110001",
+            telegram_id=999111,
+            cars_limit=5,
+            expires_at=timezone.now() + timedelta(days=30),
+        )
+        UserSetting.objects.create(owner=self.user_a)
+        self.client_a.force_authenticate(user=self.user_a)
+
+        self.user_b = User.objects.create_user(
+            username="excel_user_b",
+            full_name="Excel User B",
+            phone="+998901110002",
+            telegram_id=999222,
+            cars_limit=5,
+            expires_at=timezone.now() + timedelta(days=30),
+        )
+        UserSetting.objects.create(owner=self.user_b)
+
+        # Create car & contract for user A
+        self.car_a = create_car_service(
+            owner=self.user_a,
+            name="Chevrolet Gentra",
+            plate_number="01A777AA",
+            default_price=Decimal("12000.00"),
+        )
+        self.driver_a = Driver.objects.create(
+            owner=self.user_a,
+            full_name="Olim Haydovchi",
+            phone="+998905554433",
+        )
+        self.contract_a = create_contract_service(
+            owner=self.user_a,
+            car=self.car_a,
+            driver=self.driver_a,
+            car_price=Decimal("10000.00"),
+            initial_payment=Decimal("2000.00"),
+            annual_percent=Decimal("20.00"),
+            months_count=6,
+            payment_day=10,
+            start_date=timezone.localdate() - timedelta(days=40),
+        )
+
+        # Create car & contract for user B
+        self.car_b = create_car_service(
+            owner=self.user_b,
+            name="Chevrolet Tracker",
+            plate_number="01B888BB",
+            default_price=Decimal("18000.00"),
+        )
+        self.driver_b = Driver.objects.create(
+            owner=self.user_b,
+            full_name="Rustam Haydovchi",
+            phone="+998907776655",
+        )
+        self.contract_b = create_contract_service(
+            owner=self.user_b,
+            car=self.car_b,
+            driver=self.driver_b,
+            car_price=Decimal("15000.00"),
+            initial_payment=Decimal("3000.00"),
+            annual_percent=Decimal("20.00"),
+            months_count=6,
+            payment_day=10,
+            start_date=timezone.localdate() - timedelta(days=40),
+        )
+
+    def test_generate_tenant_excel_report_and_export_view(self):
+        import io
+        import openpyxl
+        from apps.fleet.excel import generate_tenant_excel_report
+
+        excel_bytes = generate_tenant_excel_report(self.user_a)
+        self.assertTrue(excel_bytes.startswith(b"PK"))  # Valid zip/xlsx header
+
+        wb = openpyxl.load_workbook(io.BytesIO(excel_bytes))
+        self.assertIn("Mashinalar va Shartnomalar", wb.sheetnames)
+        self.assertIn("To'lovlar Jadvali", wb.sheetnames)
+
+        # Test API Endpoint
+        response = self.client_a.get("/api/v1/export/excel/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response["Content-Type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        self.assertIn("carenda_hisobot.xlsx", response["Content-Disposition"])
+
+    def test_build_overdue_summary_text_isolation_and_formatting(self):
+        from apps.bot.services import build_overdue_summary_text
+
+        text_a = build_overdue_summary_text(self.user_a)
+        self.assertIsNotNone(text_a)
+        self.assertIn("Chevrolet Gentra", text_a)
+        self.assertIn("01A777AA", text_a)
+        self.assertIn("Olim Haydovchi", text_a)
+
+        # Multi-tenant isolation: User B's details must not leak
+        self.assertNotIn("Chevrolet Tracker", text_a)
+        self.assertNotIn("01B888BB", text_a)
+        self.assertNotIn("Rustam Haydovchi", text_a)
+
+        # When all overdue payments are paid
+        for p in self.contract_a.payments.filter(due_date__lte=timezone.localdate()):
+            p.status = Payment.Status.PAID
+            p.paid_amount = p.expected_amount
+            p.save()
+
+        text_after_paid = build_overdue_summary_text(self.user_a)
+        self.assertIsNone(text_after_paid)
+
+

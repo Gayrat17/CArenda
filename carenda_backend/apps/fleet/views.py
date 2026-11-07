@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Sum
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
@@ -9,6 +10,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.fleet.excel import generate_tenant_excel_report
 from apps.fleet.models import Car, Contract, Driver, Payment
 from apps.fleet.serializers import (
     CalculateContractSerializer,
@@ -389,3 +391,17 @@ class PaymentPayAPIView(APIView):
             return Response({"detail": msg}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response(PaymentSerializer(updated_payment).data)
+
+
+class ExportExcelAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        excel_bytes = generate_tenant_excel_report(request.user)
+        response = HttpResponse(
+            excel_bytes,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response["Content-Disposition"] = 'attachment; filename="carenda_hisobot.xlsx"'
+        return response
+

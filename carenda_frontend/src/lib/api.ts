@@ -34,7 +34,7 @@ declare global {
 }
 
 const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+  process.env.NEXT_PUBLIC_API_URL || "/api/v1";
 
 export async function apiFetch<T>(
   endpoint: string,
@@ -188,3 +188,36 @@ export async function recordPayment(
     body: JSON.stringify(payload),
   });
 }
+
+// Excel Export
+export async function downloadExcelReport(): Promise<void> {
+  const cleanEndpoint = "/export/excel/";
+  const url = `${API_BASE_URL}${cleanEndpoint}`;
+
+  let initData = "";
+  if (typeof window !== "undefined") {
+    initData = window.Telegram?.WebApp?.initData?.trim() || "";
+  }
+  const authHeaderValue = initData ? `tma ${initData}` : "tma dev";
+
+  const response = await fetch(url, {
+    headers: {
+      Authorization: authHeaderValue,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error("Excel hisobotini yuklab olishda xatolik yuz berdi.");
+  }
+
+  const blob = await response.blob();
+  const downloadUrl = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = downloadUrl;
+  a.download = "carenda_hisobot.xlsx";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  window.URL.revokeObjectURL(downloadUrl);
+}
+
