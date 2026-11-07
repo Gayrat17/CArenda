@@ -120,7 +120,10 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Telegram Mini App Configuration
-TELEGRAM_BOT_TOKEN = config('TELEGRAM_BOT_TOKEN', default='dev_bot_token_123456')
+TELEGRAM_BOT_TOKEN = config(
+    "BOT_TOKEN",
+    default=config("TELEGRAM_BOT_TOKEN", default="dev_bot_token_123456"),
+)
 
 # Django Rest Framework Configuration
 REST_FRAMEWORK = {

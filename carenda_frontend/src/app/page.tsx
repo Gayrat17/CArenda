@@ -1,69 +1,209 @@
-import Image from "next/image";
+"use client";
+
+import React, { useEffect, useState, useCallback } from "react";
+import { getCars, getDashboard, getDrivers, getMe } from "@/lib/api";
+import {
+  CarListItem,
+  DashboardResponse,
+  Driver,
+  OverduePaymentItem,
+  Payment,
+  User,
+} from "@/types/fleet";
+import { BottomNav, NavTab } from "@/components/BottomNav";
+import { DashboardTab } from "@/components/DashboardTab";
+import { CarsTab } from "@/components/CarsTab";
+import { ContractTab } from "@/components/ContractTab";
+import { SettingsTab } from "@/components/SettingsTab";
+import { PaymentModal } from "@/components/PaymentModal";
+import { AddCarModal } from "@/components/AddCarModal";
+import { CarDetailModal } from "@/components/CarDetailModal";
 
 export default function Home() {
+  const [activeTab, setActiveTab] = useState<NavTab>("dashboard");
+
+  // Core Data State
+  const [user, setUser] = useState<User | null>(null);
+  const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
+  const [cars, setCars] = useState<CarListItem[]>([]);
+  const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Modals & Navigation Selection State
+  const [selectedCarForDetailId, setSelectedCarForDetailId] = useState<number | null>(null);
+  const [selectedCarForRent, setSelectedCarForRent] = useState<CarListItem | null>(null);
+  const [addCarModalOpen, setAddCarModalOpen] = useState(false);
+
+  interface PaymentTargetModal {
+    id: number;
+    month_number?: number;
+    due_date: string;
+    expected_amount: string;
+    paid_amount: string;
+    remaining_amount: string;
+    car_name?: string;
+    driver_name?: string;
+  }
+  const [activePaymentTarget, setActivePaymentTarget] = useState<PaymentTargetModal | null>(null);
+
+  // Initialize Telegram WebApp and fetch core state
+  const loadData = useCallback(async () => {
+    try {
+      setLoading(true);
+      const [meData, dashData, carsData, driversData] = await Promise.all([
+        getMe().catch(() => null),
+        getDashboard().catch(() => null),
+        getCars().catch(() => []),
+        getDrivers().catch(() => []),
+      ]);
+
+      if (meData) setUser(meData);
+      if (dashData) setDashboard(dashData);
+      setCars(carsData);
+      setDrivers(driversData);
+    } catch (err) {
+      console.error("Failed to load platform data:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    // Notify Telegram Mini App environment
+    if (typeof window !== "undefined" && window.Telegram?.WebApp) {
+      window.Telegram.WebApp.ready?.();
+      window.Telegram.WebApp.expand?.();
+    }
+    loadData();
+  }, [loadData]);
+
+  // Handlers for payments
+  const handleOpenOverduePayment = (item: OverduePaymentItem) => {
+    setActivePaymentTarget({
+      id: item.id,
+      due_date: item.due_date,
+      expected_amount: item.expected_amount,
+      paid_amount: item.paid_amount,
+      remaining_amount: item.remaining_amount,
+      car_name: item.car_name,
+      driver_name: item.driver_name,
+    });
+  };
+
+  const handleOpenSchedulePayment = (
+    payment: Payment,
+    carName: string,
+    driverName: string
+  ) => {
+    setActivePaymentTarget({
+      id: payment.id,
+      month_number: payment.month_number,
+      due_date: payment.due_date,
+      expected_amount: payment.expected_amount,
+      paid_amount: payment.paid_amount,
+      remaining_amount: payment.remaining_amount,
+      car_name: carName,
+      driver_name: driverName,
+    });
+  };
+
+  // Rent car action from CarDetailModal
+  const handleRentCar = (carDetail: { id: number; default_price: string }) => {
+    const matched = cars.find((c) => c.id === carDetail.id);
+    if (matched) {
+      setSelectedCarForRent(matched);
+      setActiveTab("contract");
+    }
+  };
+
+  // Contract created successfully
+  const handleContractCreated = (carId: number) => {
+    loadData();
+    setSelectedCarForDetailId(carId);
+    setActiveTab("cars");
+  };
+
+  const overdueCount = dashboard?.overdue_payments?.length || 0;
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <main className="max-w-md mx-auto min-h-screen bg-slate-50 text-slate-900 pb-24 px-4 pt-4 relative">
+      {/* Active Tab View */}
+      {activeTab === "dashboard" && (
+        <DashboardTab
+          user={user}
+          dashboard={dashboard}
+          loading={loading}
+          onPaymentClick={handleOpenOverduePayment}
+          onRefresh={loadData}
+          onNavigateTab={setActiveTab}
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+      )}
+
+      {activeTab === "cars" && (
+        <CarsTab
+          cars={cars}
+          loading={loading}
+          canAddCar={user?.can_add_car ?? true}
+          onAddCarClick={() => setAddCarModalOpen(true)}
+          onSelectCar={(id) => setSelectedCarForDetailId(id)}
+        />
+      )}
+
+      {activeTab === "contract" && (
+        <ContractTab
+          user={user}
+          cars={cars}
+          drivers={drivers}
+          selectedCarForRent={selectedCarForRent}
+          onSuccess={handleContractCreated}
+          onNavigateCars={() => setActiveTab("cars")}
+        />
+      )}
+
+      {activeTab === "settings" && (
+        <SettingsTab user={user} onRefreshUser={loadData} />
+      )}
+
+      {/* Sticky Bottom Navigation Bar */}
+      <BottomNav
+        activeTab={activeTab}
+        onTabChange={(tab) => {
+          if (tab !== "contract") {
+            setSelectedCarForRent(null);
+          }
+          setActiveTab(tab);
+        }}
+        overdueCount={overdueCount}
+      />
+
+      {/* Modals */}
+      {activePaymentTarget && (
+        <PaymentModal
+          payment={activePaymentTarget}
+          onClose={() => setActivePaymentTarget(null)}
+          onSuccess={loadData}
+        />
+      )}
+
+      {addCarModalOpen && (
+        <AddCarModal
+          canAddCar={user?.can_add_car ?? true}
+          carsCount={user?.cars_count || 0}
+          carsLimit={user?.cars_limit || 2}
+          onClose={() => setAddCarModalOpen(false)}
+          onSuccess={loadData}
+        />
+      )}
+
+      {selectedCarForDetailId && (
+        <CarDetailModal
+          carId={selectedCarForDetailId}
+          onClose={() => setSelectedCarForDetailId(null)}
+          onRentClick={handleRentCar}
+          onPaymentClick={handleOpenSchedulePayment}
+          onRefreshParent={loadData}
+        />
+      )}
+    </main>
   );
 }
