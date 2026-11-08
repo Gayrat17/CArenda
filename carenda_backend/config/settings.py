@@ -1,9 +1,18 @@
+import os
 from pathlib import Path
 import dj_database_url
 from decouple import config
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+PARENT_DIR = BASE_DIR.parent
+
+# Reliably load .env from project root and carenda_backend
+if (PARENT_DIR / ".env").exists():
+    load_dotenv(PARENT_DIR / ".env")
+if (BASE_DIR / ".env").exists():
+    load_dotenv(BASE_DIR / ".env", override=True)
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = config(
@@ -72,9 +81,23 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
-# Database
-CONN_MAX_AGE = config('CONN_MAX_AGE', default=60, cast=int)
+# Database (Strict PostgreSQL Configuration)
+import sys
+
+IS_TESTING = "test" in sys.argv
+CONN_MAX_AGE = 0 if IS_TESTING else config('CONN_MAX_AGE', default=60, cast=int)
 DATABASE_URL = config('DATABASE_URL', default=None)
+
+DB_NAME = config('DB_NAME', default='carenda_db')
+DB_USER = config('DB_USER', default='postgres')
+DB_PASSWORD = config('DB_PASSWORD', default='1')
+DB_HOST = config('DB_HOST', default='localhost')
+DB_PORT = config('DB_PORT', default='5432')
+
+# Normalize common username quirks (e.g. POSTGRES -> postgres)
+if DB_USER and DB_USER.upper() == 'POSTGRES':
+    DB_USER = 'postgres'
+
 if DATABASE_URL:
     DATABASES = {
         'default': dj_database_url.parse(DATABASE_URL, conn_max_age=CONN_MAX_AGE)
@@ -82,8 +105,12 @@ if DATABASE_URL:
 else:
     DATABASES = {
         'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': DB_NAME,
+            'USER': DB_USER,
+            'PASSWORD': DB_PASSWORD,
+            'HOST': DB_HOST,
+            'PORT': str(DB_PORT),
             'CONN_MAX_AGE': CONN_MAX_AGE,
         }
     }

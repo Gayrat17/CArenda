@@ -89,17 +89,21 @@ async def send_daily_overdue_notifications(bot: Bot) -> int:
     """
     @sync_to_async
     def get_active_users_with_alerts():
-        active_users = User.objects.filter(
-            is_active=True,
-            expires_at__gt=timezone.now(),
-            telegram_id__isnull=False,
-        )
-        user_alerts = []
-        for u in active_users:
-            text = build_overdue_summary_text(u)
-            if text:
-                user_alerts.append((u.telegram_id, text))
-        return user_alerts
+        try:
+            active_users = User.objects.filter(
+                is_active=True,
+                expires_at__gt=timezone.now(),
+                telegram_id__isnull=False,
+            )
+            user_alerts = []
+            for u in active_users:
+                text = build_overdue_summary_text(u)
+                if text:
+                    user_alerts.append((u.telegram_id, text))
+            return user_alerts
+        finally:
+            from django.db import connections
+            connections.close_all()
 
     alerts = await get_active_users_with_alerts()
     notified_count = 0

@@ -222,9 +222,14 @@ def record_payment_service(
     try:
         payment_id = payment.id
         amount_str = str(amount)
-        transaction.on_commit(
-            lambda: send_payment_receipt_notification_task.delay(payment_id, amount_str)
-        )
+
+        def _safe_dispatch():
+            try:
+                send_payment_receipt_notification_task.delay(payment_id, amount_str)
+            except Exception:
+                pass
+
+        transaction.on_commit(_safe_dispatch)
     except Exception:
         pass
 
