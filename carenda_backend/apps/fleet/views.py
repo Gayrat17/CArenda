@@ -35,6 +35,7 @@ from apps.fleet.services import (
     record_payment_service,
 )
 from apps.users.models import User, UserSetting
+from apps.users.serializers import UserMeSerializer
 
 
 class IsArendator(BasePermission):
@@ -49,83 +50,249 @@ class IsArendator(BasePermission):
         )
 
 
+def get_dashboard_data_for_owner(owner, today=None):
+    if today is None:
+        today = timezone.localdate()
+    cache_key = f"tenant_dashboard:{owner.id}:{today.isoformat()}"
+    cached_data = cache.get(cache_key)
+    if cached_data is not None:
+        return cached_data
+
+    car_stats = owner.cars.aggregate(
+        total=Count("id"),
+        available=Count("id", filter=Q(status=Car.Status.AVAILABLE)),
+        rented=Count("id", filter=Q(status=Car.Status.RENTED)),
+        maintenance=Count("id", filter=Q(status=Car.Status.MAINTENANCE)),
+    )
+    total_cars = car_stats["total"] or 0
+    available_cars = car_stats["available"] or 0
+    rented_cars = car_stats["rented"] or 0
+    maintenance_cars = car_stats["maintenance"] or 0
+
+    active_contracts_count = Contract.objects.filter(owner=owner, is_active=True).count()
+
+    active_payments = Payment.objects.filter(
+        contract__owner=owner, contract__is_active=True
+    )
+    sums = active_payments.aggregate(
+        expected=Sum("expected_amount"), paid=Sum("paid_amount")
+    )
+    total_expected_usd = sums["expected"] or Decimal("0.00")
+    total_collected_usd = sums["paid"] or Decimal("0.00")
+    total_remaining_usd = max(
+        Decimal("0.00"), total_expected_usd - total_collected_usd
+    )
+
+    overdue_qs = (
+        Payment.objects.filter(
+            contract__owner=owner,
+            status__in=[Payment.Status.PENDING, Payment.Status.PARTIAL],
+            due_date__lte=today,
+        )
+        .select_related("contract__car", "contract__driver")
+        .order_by("due_date")
+    )
+
+    overdue_payments_data = []
+    for p in overdue_qs:
+        days_overdue = (today - p.due_date).days
+        overdue_payments_data.append(
+            {
+                "id": p.id,
+                "contract_id": p.contract_id,
+                "car_name": p.contract.car.name,
+                "plate_number": p.contract.car.plate_number,
+                "driver_name": p.contract.driver.full_name,
+                "driver_phone": p.contract.driver.phone,
+                "due_date": str(p.due_date),
+                "expected_amount": f"{p.expected_amount:.2f}",
+                "paid_amount": f"{p.paid_amount:.2f}",
+                "remaining_amount": f"{p.remaining_amount:.2f}",
+                "days_overdue": max(0, days_overdue),
+            }
+        )
+
+    data = {
+        "total_cars": total_cars,
+        "available_cars": available_cars,
+        "rented_cars": rented_cars,
+        "maintenance_cars": maintenance_cars,
+        "active_contracts_count": active_contracts_count,
+        "total_expected_usd": f"{total_expected_usd:.2f}",
+        "total_collected_usd": f"{total_collected_usd:.2f}",
+        "total_remaining_usd": f"{total_remaining_usd:.2f}",
+        "overdue_payments": overdue_payments_data,
+    }
+    cache.set(cache_key, data, 60)
+    return data
+
+
+def get_cars_data_for_owner(owner):
+    cache_key = f"tenant_cars_list:{owner.id}"
+    cached_data = cache.get(cache_key)
+    if cached_data is not None:
+        return cached_data
+
+    active_contracts_prefetch = Prefetch(
+        "contracts",
+        queryset=Contract.objects.filter(is_active=True)
+        .select_related("driver")
+        .prefetch_related(
+            Prefetch(
+                "payments",
+                queryset=Payment.objects.filter(
+                    status__in=[Payment.Status.PENDING, Payment.Status.PARTIAL]
+                ).order_by("due_date"),
+                to_attr="pending_payments",
+            )
+        ),
+        to_attr="active_contracts_list",
+    )
+    cars = (
+        owner.cars.all()
+        .order_by("-created_at")
+        .prefetch_related(active_contracts_prefetch)
+    )
+    serializer = CarListSerializer(cars, many=True)
+    cache.set(cache_key, serializer.data, 60)
+    return serializer.data
+
+
+def get_user_schedule_data(user):
+    driver = (
+        Driver.objects.filter(user=user)
+        .select_related("owner")
+        .first()
+    )
+    if not driver and user.phone:
+        normalized_user_phone = normalize_phone(user.phone)
+        if normalized_user_phone:
+            drivers_qs = Driver.objects.filter(owner_id=user.parent_owner_id or 0)
+            for d in drivers_qs:
+                if normalize_phone(d.phone) == normalized_user_phone:
+                    driver = d
+                    if not d.user_id:
+                        d.user = user
+                        d.save(update_fields=["user"])
+                    break
+
+    if not driver:
+        return []
+
+    today = timezone.localdate()
+    contracts = (
+        Contract.objects.filter(driver=driver)
+        .select_related("car", "owner")
+        .prefetch_related("payments")
+        .order_by("-is_active", "-created_at")
+    )
+
+    results = []
+    for c in contracts:
+        payments_qs = c.payments.all().order_by("month_number")
+        paid_total = sum(p.paid_amount for p in payments_qs)
+        remaining_total = sum(p.remaining_amount for p in payments_qs)
+        next_p = payments_qs.filter(
+            status__in=[Payment.Status.PENDING, Payment.Status.PARTIAL]
+        ).first()
+
+        payments_list = []
+        for p in payments_qs:
+            days_overdue = 0
+            if p.status != Payment.Status.PAID and p.due_date < today:
+                days_overdue = (today - p.due_date).days
+            payments_list.append(
+                {
+                    "id": p.id,
+                    "month_number": p.month_number,
+                    "due_date": str(p.due_date),
+                    "expected_amount": f"{p.expected_amount:.2f}",
+                    "paid_amount": f"{p.paid_amount:.2f}",
+                    "remaining_amount": f"{p.remaining_amount:.2f}",
+                    "status": p.status,
+                    "paid_at": str(p.paid_at) if p.paid_at else None,
+                    "comment": p.comment,
+                    "days_overdue": max(0, days_overdue),
+                }
+            )
+
+        results.append(
+            {
+                "id": c.id,
+                "is_active": c.is_active,
+                "driver_name": driver.full_name,
+                "driver_phone": driver.phone,
+                "car_name": c.car.name,
+                "plate_number": c.car.plate_number,
+                "owner_name": c.owner.full_name or c.owner.username or "Arendator",
+                "owner_phone": c.owner.phone,
+                "car_price": f"{c.car_price:.2f}",
+                "initial_payment": f"{c.initial_payment:.2f}",
+                "principal_amount": f"{c.principal_amount:.2f}",
+                "total_amount": f"{c.total_amount:.2f}",
+                "monthly_amount": f"{c.monthly_amount:.2f}",
+                "annual_percent": f"{c.annual_percent:.2f}",
+                "months_count": c.months_count,
+                "payment_day": c.payment_day,
+                "start_date": str(c.start_date),
+                "paid_total_usd": f"{paid_total:.2f}",
+                "remaining_total_usd": f"{remaining_total:.2f}",
+                "next_due_date": str(next_p.due_date) if next_p else None,
+                "next_due_amount": (
+                    f"{next_p.remaining_amount:.2f}" if next_p else None
+                ),
+                "payments": payments_list,
+            }
+        )
+
+    return results
+
+
+class BootstrapAPIView(APIView):
+    """
+    Single-request bootstrap endpoint returning:
+    - me: serialized current user
+    - dashboard: cached owner dashboard metrics (or null for user role)
+    - cars: cached owner cars list (or [] for user role)
+    - user_schedule: driver's contracts and payment schedule (or null for owner role)
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        today = timezone.localdate()
+        cache_key = f"tenant_bootstrap:{request.user.id}:{today.isoformat()}"
+        cached_data = cache.get(cache_key)
+        if cached_data is not None:
+            return Response(cached_data)
+
+        me_data = UserMeSerializer(request.user).data
+
+        if request.user.role in (User.RoleChoices.OWNER, User.RoleChoices.SUPERADMIN):
+            owner = request.user.tenant_owner
+            dashboard_data = get_dashboard_data_for_owner(owner, today)
+            cars_data = get_cars_data_for_owner(owner)
+            user_schedule_data = None
+        else:
+            dashboard_data = None
+            cars_data = []
+            user_schedule_data = get_user_schedule_data(request.user)
+
+        data = {
+            "me": me_data,
+            "dashboard": dashboard_data,
+            "cars": cars_data,
+            "user_schedule": user_schedule_data,
+        }
+        cache.set(cache_key, data, 60)
+        return Response(data)
+
+
 class DashboardAPIView(APIView):
     permission_classes = [IsAuthenticated, IsArendator]
 
     def get(self, request):
         owner = request.user.tenant_owner
-        today = timezone.localdate()
-        cache_key = f"tenant_dashboard:{owner.id}:{today.isoformat()}"
-        cached_data = cache.get(cache_key)
-        if cached_data is not None:
-            return Response(cached_data)
-
-        car_stats = owner.cars.aggregate(
-            total=Count("id"),
-            available=Count("id", filter=Q(status=Car.Status.AVAILABLE)),
-            rented=Count("id", filter=Q(status=Car.Status.RENTED)),
-            maintenance=Count("id", filter=Q(status=Car.Status.MAINTENANCE)),
-        )
-        total_cars = car_stats["total"] or 0
-        available_cars = car_stats["available"] or 0
-        rented_cars = car_stats["rented"] or 0
-        maintenance_cars = car_stats["maintenance"] or 0
-
-        active_contracts_count = Contract.objects.filter(owner=owner, is_active=True).count()
-
-        active_payments = Payment.objects.filter(
-            contract__owner=owner, contract__is_active=True
-        )
-        sums = active_payments.aggregate(
-            expected=Sum("expected_amount"), paid=Sum("paid_amount")
-        )
-        total_expected_usd = sums["expected"] or Decimal("0.00")
-        total_collected_usd = sums["paid"] or Decimal("0.00")
-        total_remaining_usd = max(
-            Decimal("0.00"), total_expected_usd - total_collected_usd
-        )
-
-        overdue_qs = (
-            Payment.objects.filter(
-                contract__owner=owner,
-                status__in=[Payment.Status.PENDING, Payment.Status.PARTIAL],
-                due_date__lte=today,
-            )
-            .select_related("contract__car", "contract__driver")
-            .order_by("due_date")
-        )
-
-        overdue_payments_data = []
-        for p in overdue_qs:
-            days_overdue = (today - p.due_date).days
-            overdue_payments_data.append(
-                {
-                    "id": p.id,
-                    "contract_id": p.contract_id,
-                    "car_name": p.contract.car.name,
-                    "plate_number": p.contract.car.plate_number,
-                    "driver_name": p.contract.driver.full_name,
-                    "driver_phone": p.contract.driver.phone,
-                    "due_date": str(p.due_date),
-                    "expected_amount": f"{p.expected_amount:.2f}",
-                    "paid_amount": f"{p.paid_amount:.2f}",
-                    "remaining_amount": f"{p.remaining_amount:.2f}",
-                    "days_overdue": max(0, days_overdue),
-                }
-            )
-
-        data = {
-            "total_cars": total_cars,
-            "available_cars": available_cars,
-            "rented_cars": rented_cars,
-            "maintenance_cars": maintenance_cars,
-            "active_contracts_count": active_contracts_count,
-            "total_expected_usd": f"{total_expected_usd:.2f}",
-            "total_collected_usd": f"{total_collected_usd:.2f}",
-            "total_remaining_usd": f"{total_remaining_usd:.2f}",
-            "overdue_payments": overdue_payments_data,
-        }
-        cache.set(cache_key, data, 60)
+        data = get_dashboard_data_for_owner(owner)
         return Response(data)
 
 
@@ -134,34 +301,8 @@ class CarListCreateAPIView(APIView):
 
     def get(self, request):
         owner = request.user.tenant_owner
-        cache_key = f"tenant_cars_list:{owner.id}"
-        cached_data = cache.get(cache_key)
-        if cached_data is not None:
-            return Response(cached_data)
-
-        active_contracts_prefetch = Prefetch(
-            "contracts",
-            queryset=Contract.objects.filter(is_active=True)
-            .select_related("driver")
-            .prefetch_related(
-                Prefetch(
-                    "payments",
-                    queryset=Payment.objects.filter(
-                        status__in=[Payment.Status.PENDING, Payment.Status.PARTIAL]
-                    ).order_by("due_date"),
-                    to_attr="pending_payments",
-                )
-            ),
-            to_attr="active_contracts_list",
-        )
-        cars = (
-            owner.cars.all()
-            .order_by("-created_at")
-            .prefetch_related(active_contracts_prefetch)
-        )
-        serializer = CarListSerializer(cars, many=True)
-        cache.set(cache_key, serializer.data, 60)
-        return Response(serializer.data)
+        data = get_cars_data_for_owner(owner)
+        return Response(data)
 
     def post(self, request):
         owner = request.user.tenant_owner
@@ -479,92 +620,7 @@ class UserScheduleAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        driver = (
-            Driver.objects.filter(user=request.user)
-            .select_related("owner")
-            .first()
-        )
-        if not driver and request.user.phone:
-            normalized_user_phone = normalize_phone(request.user.phone)
-            if normalized_user_phone:
-                drivers_qs = Driver.objects.filter(owner_id=request.user.parent_owner_id or 0)
-                for d in drivers_qs:
-                    if normalize_phone(d.phone) == normalized_user_phone:
-                        driver = d
-                        if not d.user_id:
-                            d.user = request.user
-                            d.save(update_fields=["user"])
-                        break
-
-        if not driver:
-            return Response([])
-
-        today = timezone.localdate()
-        contracts = (
-            Contract.objects.filter(driver=driver)
-            .select_related("car", "owner")
-            .prefetch_related("payments")
-            .order_by("-is_active", "-created_at")
-        )
-
-        results = []
-        for c in contracts:
-            payments_qs = c.payments.all().order_by("month_number")
-            paid_total = sum(p.paid_amount for p in payments_qs)
-            remaining_total = sum(p.remaining_amount for p in payments_qs)
-            next_p = payments_qs.filter(
-                status__in=[Payment.Status.PENDING, Payment.Status.PARTIAL]
-            ).first()
-
-            payments_list = []
-            for p in payments_qs:
-                days_overdue = 0
-                if p.status != Payment.Status.PAID and p.due_date < today:
-                    days_overdue = (today - p.due_date).days
-                payments_list.append(
-                    {
-                        "id": p.id,
-                        "month_number": p.month_number,
-                        "due_date": str(p.due_date),
-                        "expected_amount": f"{p.expected_amount:.2f}",
-                        "paid_amount": f"{p.paid_amount:.2f}",
-                        "remaining_amount": f"{p.remaining_amount:.2f}",
-                        "status": p.status,
-                        "paid_at": str(p.paid_at) if p.paid_at else None,
-                        "comment": p.comment,
-                        "days_overdue": max(0, days_overdue),
-                    }
-                )
-
-            results.append(
-                {
-                    "id": c.id,
-                    "is_active": c.is_active,
-                    "driver_name": driver.full_name,
-                    "driver_phone": driver.phone,
-                    "car_name": c.car.name,
-                    "plate_number": c.car.plate_number,
-                    "owner_name": c.owner.full_name or c.owner.username or "Arendator",
-                    "owner_phone": c.owner.phone,
-                    "car_price": f"{c.car_price:.2f}",
-                    "initial_payment": f"{c.initial_payment:.2f}",
-                    "principal_amount": f"{c.principal_amount:.2f}",
-                    "total_amount": f"{c.total_amount:.2f}",
-                    "monthly_amount": f"{c.monthly_amount:.2f}",
-                    "annual_percent": f"{c.annual_percent:.2f}",
-                    "months_count": c.months_count,
-                    "payment_day": c.payment_day,
-                    "start_date": str(c.start_date),
-                    "paid_total_usd": f"{paid_total:.2f}",
-                    "remaining_total_usd": f"{remaining_total:.2f}",
-                    "next_due_date": str(next_p.due_date) if next_p else None,
-                    "next_due_amount": (
-                        f"{next_p.remaining_amount:.2f}" if next_p else None
-                    ),
-                    "payments": payments_list,
-                }
-            )
-
+        results = get_user_schedule_data(request.user)
         return Response(results)
 
 

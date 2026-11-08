@@ -1063,6 +1063,92 @@ class PerformanceAndCachingTests(TestCase):
         result = send_payment_receipt_notification_task(payment_id=999999, amount_paid="100.00")
         self.assertFalse(result)
 
+    def test_bootstrap_endpoint_for_owner_and_caching(self):
+        from django.core.cache import cache
+        c1 = Car.objects.create(owner=self.owner, name="Bootstrap Tracker", plate_number="01B999BB", status=Car.Status.AVAILABLE)
+        create_contract_service(
+            owner=self.owner,
+            car=c1,
+            driver=self.driver,
+            car_price=Decimal("12000.00"),
+            initial_payment=Decimal("2000.00"),
+            annual_percent=Decimal("20.00"),
+            months_count=12,
+            payment_day=15,
+            start_date=timezone.localdate(),
+        )
+
+        cache.clear()
+        # First call: populates bootstrap cache
+        res1 = self.client_api.get("/api/v1/bootstrap/")
+        self.assertEqual(res1.status_code, 200)
+        data1 = res1.json()
+
+        self.assertIn("me", data1)
+        self.assertEqual(data1["me"]["username"], "perf_arendator")
+        self.assertIsNotNone(data1["dashboard"])
+        self.assertGreaterEqual(len(data1["cars"]), 1)
+        self.assertIsNone(data1["user_schedule"])
+
+        # Second call: 0 DB queries (cache hit)
+        with self.assertNumQueries(0):
+            res2 = self.client_api.get("/api/v1/bootstrap/")
+            self.assertEqual(res2.status_code, 200)
+            self.assertEqual(res1.json(), res2.json())
+
+        # Invalidation check: creating a car must invalidate tenant_bootstrap cache
+        create_car_service(
+            owner=self.owner,
+            name="Brand New Car",
+            plate_number="01C888CC",
+        )
+        today_str = timezone.localdate().isoformat()
+        self.assertIsNone(cache.get(f"tenant_bootstrap:{self.owner.id}:{today_str}"))
+
+    def test_bootstrap_endpoint_for_user_driver(self):
+        driver_user = User.objects.create_user(
+            username="driver_sub_user",
+            email="driver@carenda.uz",
+            password="pass",
+            role=User.RoleChoices.USER,
+            parent_owner=self.owner,
+            full_name="Driver User Profile",
+            phone="+998971112233",
+            telegram_id=777666555,
+            is_registered=True,
+        )
+        self.driver.user = driver_user
+        self.driver.save(update_fields=["user"])
+
+        c = Car.objects.create(owner=self.owner, name="Driver Car", plate_number="01D111DD", status=Car.Status.AVAILABLE)
+        create_contract_service(
+            owner=self.owner,
+            car=c,
+            driver=self.driver,
+            car_price=Decimal("10000.00"),
+            initial_payment=Decimal("1000.00"),
+            annual_percent=Decimal("20.00"),
+            months_count=12,
+            payment_day=10,
+            start_date=timezone.localdate(),
+        )
+
+        driver_client = APIClient()
+        driver_client.force_authenticate(user=driver_user)
+
+        res = driver_client.get("/api/v1/bootstrap/")
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+
+        self.assertIn("me", data)
+        self.assertEqual(data["me"]["role"], "user")
+        self.assertIsNone(data["dashboard"])
+        self.assertEqual(data["cars"], [])
+        self.assertIsNotNone(data["user_schedule"])
+        self.assertGreaterEqual(len(data["user_schedule"]), 1)
+        self.assertEqual(data["user_schedule"][0]["car_name"], "Driver Car")
+
+
 
 
 

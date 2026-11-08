@@ -23,6 +23,7 @@ def invalidate_tenant_cache(owner_id: int, telegram_id: int | None = None) -> No
         direct_keys = [
             f"tenant_dashboard:{owner_id}:{today_str}",
             f"tenant_cars_list:{owner_id}",
+            f"tenant_bootstrap:{owner_id}:{today_str}",
         ]
         if telegram_id:
             direct_keys.append(f"auth_user:{telegram_id}")
@@ -33,6 +34,7 @@ def invalidate_tenant_cache(owner_id: int, telegram_id: int | None = None) -> No
         if hasattr(cache, "delete_pattern"):
             try:
                 cache.delete_pattern(f"tenant_dashboard:{owner_id}:*")
+                cache.delete_pattern(f"tenant_bootstrap:{owner_id}:*")
             except Exception:
                 pass
     except Exception:

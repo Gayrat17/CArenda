@@ -1,4 +1,5 @@
 import {
+  BootstrapResponse,
   CalculatePayload,
   CalculateResponse,
   CarCreatePayload,
@@ -52,10 +53,74 @@ interface CacheEntry<T> {
 }
 
 const apiCache = new Map<string, CacheEntry<unknown>>();
-const CACHE_TTL_MS = 20_000;
+const CACHE_TTL_MS = 30_000;
+const STORAGE_PREFIX = "carenda_cache_";
+
+export function getTelegramUserId(): string {
+  if (typeof window === "undefined") return "dev";
+  const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
+  return tgUser?.id ? String(tgUser.id) : "dev";
+}
 
 export function clearApiCache(): void {
   apiCache.clear();
+  if (typeof window !== "undefined") {
+    try {
+      const userId = getTelegramUserId();
+      const prefix = `${STORAGE_PREFIX}${userId}`;
+      for (let i = window.localStorage.length - 1; i >= 0; i--) {
+        const key = window.localStorage.key(i);
+        if (key && (key.startsWith(prefix) || key.startsWith("carenda_bootstrap_"))) {
+          window.localStorage.removeItem(key);
+        }
+      }
+    } catch {
+      // Ignore localStorage errors
+    }
+  }
+}
+
+/**
+ * Synchronously reads the cached Bootstrap payload from memory or localStorage.
+ * Enables 0ms immediate UI hydration on frame 1 without waiting for React effects or network.
+ */
+export function getCachedBootstrapSync(): BootstrapResponse | null {
+  if (typeof window === "undefined") return null;
+
+  // 1. Check in-memory Map cache
+  for (const [key, entry] of apiCache.entries()) {
+    if (key.includes("/bootstrap/") || key.includes("/bootstrap")) {
+      return entry.data as BootstrapResponse;
+    }
+  }
+
+  // 2. Check persistent window.localStorage
+  try {
+    const userId = getTelegramUserId();
+    const primaryKey = `${STORAGE_PREFIX}${userId}_/bootstrap/`;
+    const fallbackKey = `${STORAGE_PREFIX}${userId}_/bootstrap`;
+    const altKey = `carenda_bootstrap_${userId}`;
+
+    const raw =
+      window.localStorage.getItem(primaryKey) ||
+      window.localStorage.getItem(fallbackKey) ||
+      window.localStorage.getItem(altKey);
+
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") {
+        if ("data" in parsed && parsed.data) {
+          return parsed.data as BootstrapResponse;
+        }
+        if ("me" in parsed && parsed.me) {
+          return parsed as BootstrapResponse;
+        }
+      }
+    }
+  } catch {
+    // Ignore localStorage errors
+  }
+  return null;
 }
 
 export interface ApiFetchOptions extends RequestInit {
@@ -79,11 +144,28 @@ export async function apiFetch<T>(
 
   const cacheKey = `${authHeaderValue}:${cleanEndpoint}`;
 
-  // Cache lookup for non-mutating GET requests
+  // Cache lookup for non-mutating GET requests (Memory -> localStorage)
   if (method === "GET" && !options.forceRefresh) {
-    const cached = apiCache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
-      return cached.data as T;
+    const memCached = apiCache.get(cacheKey);
+    if (memCached && Date.now() - memCached.timestamp < CACHE_TTL_MS) {
+      return memCached.data as T;
+    }
+
+    if (typeof window !== "undefined") {
+      try {
+        const userId = getTelegramUserId();
+        const storageKey = `${STORAGE_PREFIX}${userId}_${cleanEndpoint}`;
+        const raw = window.localStorage.getItem(storageKey);
+        if (raw) {
+          const entry = JSON.parse(raw);
+          if (entry && Date.now() - entry.timestamp < CACHE_TTL_MS) {
+            apiCache.set(cacheKey, entry);
+            return entry.data as T;
+          }
+        }
+      } catch {
+        // Ignore localStorage errors
+      }
     }
   }
 
@@ -124,10 +206,30 @@ export async function apiFetch<T>(
 
   const result = (await response.json()) as T;
   if (method === "GET") {
-    apiCache.set(cacheKey, { data: result, timestamp: Date.now() });
+    const entry: CacheEntry<unknown> = { data: result, timestamp: Date.now() };
+    apiCache.set(cacheKey, entry);
+    if (typeof window !== "undefined") {
+      try {
+        const userId = getTelegramUserId();
+        const storageKey = `${STORAGE_PREFIX}${userId}_${cleanEndpoint}`;
+        window.localStorage.setItem(storageKey, JSON.stringify(entry));
+        if (cleanEndpoint.startsWith("/bootstrap")) {
+          window.localStorage.setItem(`carenda_bootstrap_${userId}`, JSON.stringify(result));
+        }
+      } catch {
+        // Ignore localStorage storage quota errors
+      }
+    }
   }
 
   return result;
+}
+
+// Bootstrap (Single-request fast startup)
+export async function getBootstrap(
+  options?: { forceRefresh?: boolean }
+): Promise<BootstrapResponse> {
+  return apiFetch<BootstrapResponse>("/bootstrap/", options);
 }
 
 // User & Settings

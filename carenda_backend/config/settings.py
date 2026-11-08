@@ -89,20 +89,29 @@ else:
     }
 
 # Redis & Resilient Caching Configuration
+import socket
 import sys
+import urllib.parse
 from celery.schedules import crontab
 
 IS_TESTING = "test" in sys.argv
 REDIS_URL = config("REDIS_URL", default="redis://127.0.0.1:6379/0")
 
-if IS_TESTING:
-    CACHES = {
-        "default": {
-            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-            "LOCATION": "carenda-testing-cache",
-        }
-    }
-else:
+
+def _is_redis_reachable(url: str, timeout: float = 0.15) -> bool:
+    try:
+        parsed = urllib.parse.urlparse(url)
+        host = parsed.hostname or "127.0.0.1"
+        port = parsed.port or 6379
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except Exception:
+        return False
+
+
+REDIS_ONLINE = False if IS_TESTING else _is_redis_reachable(REDIS_URL, timeout=0.15)
+
+if REDIS_ONLINE:
     CACHES = {
         "default": {
             "BACKEND": "django_redis.cache.RedisCache",
@@ -110,27 +119,35 @@ else:
             "OPTIONS": {
                 "CLIENT_CLASS": "django_redis.client.DefaultClient",
                 "IGNORE_EXCEPTIONS": True,
-                "SOCKET_CONNECT_TIMEOUT": 2,
-                "SOCKET_TIMEOUT": 2,
+                "SOCKET_CONNECT_TIMEOUT": 0.2,
+                "SOCKET_TIMEOUT": 0.2,
+                "CONNECTION_POOL_KWARGS": {"max_connections": 50},
             },
             "KEY_PREFIX": "carenda",
         }
     }
+    CELERY_BROKER_URL = config("CELERY_BROKER_URL", default=REDIS_URL)
+    CELERY_RESULT_BACKEND = config("CELERY_RESULT_BACKEND", default=REDIS_URL)
+    CELERY_TASK_ALWAYS_EAGER = False
+    DJANGO_REDIS_IGNORE_EXCEPTIONS = True
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "carenda-fast-locmem-cache",
+        }
+    }
+    CELERY_BROKER_URL = "memory://"
+    CELERY_RESULT_BACKEND = "cache+locmem://"
+    CELERY_TASK_ALWAYS_EAGER = True
+    CELERY_TASK_EAGER_PROPAGATES = True
+    DJANGO_REDIS_IGNORE_EXCEPTIONS = True
 
-DJANGO_REDIS_IGNORE_EXCEPTIONS = True
-
-# Celery Asynchronous & Scheduled Tasks Configuration
-CELERY_BROKER_URL = config("CELERY_BROKER_URL", default=REDIS_URL)
-CELERY_RESULT_BACKEND = config("CELERY_RESULT_BACKEND", default=REDIS_URL)
 CELERY_TIMEZONE = "Asia/Tashkent"
 CELERY_ENABLE_UTC = False
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
-
-if IS_TESTING:
-    CELERY_TASK_ALWAYS_EAGER = True
-    CELERY_TASK_EAGER_PROPAGATES = True
 
 CELERY_BEAT_SCHEDULE = {
     "send_daily_overdue_alerts_morning": {

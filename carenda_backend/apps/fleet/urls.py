@@ -1,6 +1,7 @@
 from django.urls import path
 
 from apps.fleet.views import (
+    BootstrapAPIView,
     CarDetailAPIView,
     CarListCreateAPIView,
     ContractCalculateAPIView,
@@ -17,6 +18,9 @@ from apps.fleet.views import (
 )
 
 urlpatterns = [
+    # Bootstrap (Single-request initialization)
+    path("bootstrap/", BootstrapAPIView.as_view(), name="fleet-bootstrap"),
+
     # Dashboard
     path("dashboard/", DashboardAPIView.as_view(), name="fleet-dashboard"),
 

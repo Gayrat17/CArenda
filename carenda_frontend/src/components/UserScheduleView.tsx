@@ -20,14 +20,28 @@ import { resolveUserIdentity } from "@/lib/identity";
 
 interface UserScheduleViewProps {
   user: User | null;
+  initialContracts?: UserScheduleContract[] | null;
   onRefreshUser: () => void;
 }
 
-export function UserScheduleView({ user, onRefreshUser }: UserScheduleViewProps) {
-  const [contracts, setContracts] = useState<UserScheduleContract[]>([]);
-  const [selectedContractId, setSelectedContractId] = useState<number | null>(null);
-  const [loading, setLoading] = useState(true);
+export function UserScheduleView({ user, initialContracts, onRefreshUser }: UserScheduleViewProps) {
+  const [contracts, setContracts] = useState<UserScheduleContract[]>(() => initialContracts || []);
+  const [selectedContractId, setSelectedContractId] = useState<number | null>(
+    () => initialContracts?.[0]?.id || null
+  );
+  const [loading, setLoading] = useState(() => !initialContracts);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Sync when initialContracts updates from bootstrap
+  useEffect(() => {
+    if (initialContracts && initialContracts.length > 0) {
+      setContracts(initialContracts);
+      if (!selectedContractId) {
+        setSelectedContractId(initialContracts[0].id);
+      }
+      setLoading(false);
+    }
+  }, [initialContracts, selectedContractId]);
 
   const fetchSchedule = async () => {
     try {
@@ -46,8 +60,10 @@ export function UserScheduleView({ user, onRefreshUser }: UserScheduleViewProps)
   };
 
   useEffect(() => {
-    fetchSchedule();
-  }, []);
+    if (!initialContracts) {
+      fetchSchedule();
+    }
+  }, [initialContracts]);
 
   const handleManualRefresh = () => {
     fetchSchedule();

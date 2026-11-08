@@ -63,6 +63,13 @@ export type UserScheduleItem = ClientPaymentScheduleItem;
 
 export interface MeResponse extends User {}
 
+export interface BootstrapResponse {
+  me: MeResponse;
+  dashboard: DashboardResponse | null;
+  cars: CarListItem[];
+  user_schedule: UserScheduleContract[] | null;
+}
+
 export interface MeUpdateRequest {
   full_name?: string;
   phone?: string;

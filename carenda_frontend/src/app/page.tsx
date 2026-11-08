@@ -1,14 +1,16 @@
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
-import { getCars, getDashboard, getDrivers, getMe } from "@/lib/api";
+import { getBootstrap, getCachedBootstrapSync, getDrivers } from "@/lib/api";
 import {
+  BootstrapResponse,
   CarListItem,
   DashboardResponse,
   Driver,
   OverduePaymentItem,
   Payment,
   User,
+  UserScheduleContract,
 } from "@/types/fleet";
 import { BottomNav, NavTab } from "@/components/BottomNav";
 import { DashboardTab } from "@/components/DashboardTab";
@@ -24,12 +26,51 @@ import { Phone, AlertCircle } from "lucide-react";
 export default function Home() {
   const [activeTab, setActiveTab] = useState<NavTab>("dashboard");
 
-  // Core Data State
-  const [user, setUser] = useState<User | null>(null);
-  const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
-  const [cars, setCars] = useState<CarListItem[]>([]);
+  // Immediate synchronous cache hydration from memory / localStorage
+  const [cachedBoot] = useState<BootstrapResponse | null>(() => getCachedBootstrapSync());
+
+  // Extract Telegram user info if available on first cold render
+  const getInitialUser = (): User | null => {
+    if (cachedBoot?.me) return cachedBoot.me;
+    if (typeof window !== "undefined") {
+      const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
+      if (tgUser) {
+        const tgId = tgUser.id ?? 0;
+        const fullName =
+          [tgUser.first_name, tgUser.last_name].filter(Boolean).join(" ") ||
+          tgUser.username ||
+          "Foydalanuvchi";
+        return {
+          id: tgId,
+          telegram_id: tgId || null,
+          username: tgUser.username || null,
+          full_name: fullName,
+          phone: "",
+          role: "owner",
+          plan: "trial",
+          cars_limit: 2,
+          cars_count: 0,
+          expires_at: "",
+          is_subscription_active: true,
+          can_add_car: true,
+          default_annual_percent: "20.00",
+          is_registered: true,
+        };
+      }
+    }
+    return null;
+  };
+
+  const [user, setUser] = useState<User | null>(getInitialUser);
+  const [dashboard, setDashboard] = useState<DashboardResponse | null>(
+    () => cachedBoot?.dashboard || null
+  );
+  const [cars, setCars] = useState<CarListItem[]>(() => cachedBoot?.cars || []);
+  const [userSchedule, setUserSchedule] = useState<UserScheduleContract[] | null>(
+    () => cachedBoot?.user_schedule || null
+  );
   const [drivers, setDrivers] = useState<Driver[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState<boolean>(() => !cachedBoot);
 
   // Modals & Navigation Selection State
   const [selectedCarForDetailId, setSelectedCarForDetailId] = useState<number | null>(null);
@@ -48,37 +89,31 @@ export default function Home() {
   }
   const [activePaymentTarget, setActivePaymentTarget] = useState<PaymentTargetModal | null>(null);
 
-  // Initialize Telegram WebApp and fetch core state in parallel without waterfall
+  // Single-request bootstrap call to eliminate multiple roundtrips
   const loadData = useCallback(async (forceRefresh = false) => {
     try {
-      setLoading(true);
-      const [meRes, dashRes, carsRes, driversRes] = await Promise.allSettled([
-        getMe({ forceRefresh }),
-        getDashboard({ forceRefresh }),
-        getCars({ forceRefresh }),
-        getDrivers({ forceRefresh }),
-      ]);
-
-      if (meRes.status === "fulfilled" && meRes.value) {
-        const meData = meRes.value;
-        setUser(meData);
-        if (meData.role === "user" || meData.is_registered === false) {
+      const boot = await getBootstrap({ forceRefresh });
+      if (boot?.me) {
+        setUser(boot.me);
+        if (boot.me.role === "user") {
+          setUserSchedule(boot.user_schedule || []);
+          setLoading(false);
+          return;
+        }
+        if (boot.me.is_registered === false) {
           setLoading(false);
           return;
         }
       }
 
-      if (dashRes.status === "fulfilled" && dashRes.value) {
-        setDashboard(dashRes.value);
-      }
-      if (carsRes.status === "fulfilled" && carsRes.value) {
-        setCars(carsRes.value);
-      }
-      if (driversRes.status === "fulfilled" && driversRes.value) {
-        setDrivers(driversRes.value);
-      }
+      if (boot?.dashboard) setDashboard(boot.dashboard);
+      if (boot?.cars) setCars(boot.cars);
+      if (boot?.user_schedule) setUserSchedule(boot.user_schedule);
+
+      // Lazily fetch drivers for ContractTab in background without blocking
+      getDrivers({ forceRefresh }).then(setDrivers).catch(() => {});
     } catch (err) {
-      console.error("Failed to load platform data:", err);
+      console.error("Failed to load platform data via bootstrap:", err);
     } finally {
       setLoading(false);
     }
@@ -172,7 +207,11 @@ export default function Home() {
   if (user?.role === "user") {
     return (
       <main className="max-w-md mx-auto min-h-screen bg-slate-50 text-slate-900 pb-8 px-4 pt-4 relative">
-        <UserScheduleView user={user} onRefreshUser={loadData} />
+        <UserScheduleView
+          user={user}
+          initialContracts={userSchedule}
+          onRefreshUser={loadData}
+        />
       </main>
     );
   }
