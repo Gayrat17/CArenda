@@ -111,7 +111,9 @@ def create_car_service(
 def create_contract_service(
     *,
     owner: User,
-    car: Car,
+    car: Car | None = None,
+    car_name: str | None = None,
+    plate_number: str | None = None,
     driver: Driver,
     car_price: Decimal,
     initial_payment: Decimal,
@@ -123,15 +125,48 @@ def create_contract_service(
     """
     Validates multi-tenant ownership and car availability, computes financial breakdown,
     creates the contract, sets car status to 'rented', and schedules monthly payments safely.
+    Supports either passing an existing available car or inline car_name and plate_number.
     """
-    if car.owner_id != owner.id or driver.owner_id != owner.id:
+    if car is None:
+        if not car_name or not car_name.strip():
+            raise ValidationError("Mashina nomi kiritilishi shart.")
+        if not plate_number or not plate_number.strip():
+            raise ValidationError("Mashina davlat raqami kiritilishi shart.")
+
+        normalized_plate = plate_number.strip().upper()
+        existing_car = Car.objects.filter(owner=owner, plate_number=normalized_plate).first()
+        if existing_car:
+            if (
+                existing_car.status == Car.Status.RENTED
+                or Contract.objects.filter(car=existing_car, is_active=True).exists()
+            ):
+                raise ValidationError("Bu davlat raqamli mashinada faol shartnoma mavjud.")
+
+            # Reuse existing available car
+            existing_car.name = car_name.strip()
+            existing_car.default_price = car_price
+            existing_car.status = Car.Status.AVAILABLE
+            existing_car.save(update_fields=["name", "default_price", "status"])
+            car = existing_car
+        else:
+            car = create_car_service(
+                owner=owner,
+                name=car_name.strip(),
+                plate_number=normalized_plate,
+                default_price=car_price,
+            )
+    else:
+        if car.owner_id != owner.id or driver.owner_id != owner.id:
+            raise ValidationError("Avtomobil yoki haydovchi sizga tegishli emas.")
+
+        if car.status != Car.Status.AVAILABLE:
+            raise ValidationError("Avtomobil band yoki ta'mirda.")
+
+        if Contract.objects.filter(car=car, is_active=True).exists():
+            raise ValidationError("Ushbu avtomobil bo'yicha faol shartnoma mavjud.")
+
+    if driver.owner_id != owner.id:
         raise ValidationError("Avtomobil yoki haydovchi sizga tegishli emas.")
-
-    if car.status != Car.Status.AVAILABLE:
-        raise ValidationError("Avtomobil band yoki ta'mirda.")
-
-    if Contract.objects.filter(car=car, is_active=True).exists():
-        raise ValidationError("Ushbu avtomobil bo'yicha faol shartnoma mavjud.")
 
     if annual_percent is None:
         user_setting, _ = UserSetting.objects.get_or_create(owner=owner)

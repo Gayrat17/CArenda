@@ -18,7 +18,6 @@ import { CarsTab } from "@/components/CarsTab";
 import { ContractTab } from "@/components/ContractTab";
 import { SettingsTab } from "@/components/SettingsTab";
 import { PaymentModal } from "@/components/PaymentModal";
-import { AddCarModal } from "@/components/AddCarModal";
 import { CarDetailModal } from "@/components/CarDetailModal";
 import { UserScheduleView } from "@/components/UserScheduleView";
 import { Phone, AlertCircle } from "lucide-react";
@@ -75,7 +74,6 @@ export default function Home() {
   // Modals & Navigation Selection State
   const [selectedCarForDetailId, setSelectedCarForDetailId] = useState<number | null>(null);
   const [selectedCarForRent, setSelectedCarForRent] = useState<CarListItem | null>(null);
-  const [addCarModalOpen, setAddCarModalOpen] = useState(false);
 
   interface PaymentTargetModal {
     id: number;
@@ -234,8 +232,7 @@ export default function Home() {
         <CarsTab
           cars={cars}
           loading={loading}
-          canAddCar={user?.can_add_car ?? true}
-          onAddCarClick={() => setAddCarModalOpen(true)}
+          onNavigateTab={setActiveTab}
           onSelectCar={(id) => setSelectedCarForDetailId(id)}
         />
       )}
@@ -272,16 +269,6 @@ export default function Home() {
         <PaymentModal
           payment={activePaymentTarget}
           onClose={() => setActivePaymentTarget(null)}
-          onSuccess={loadData}
-        />
-      )}
-
-      {addCarModalOpen && (
-        <AddCarModal
-          canAddCar={user?.can_add_car ?? true}
-          carsCount={user?.cars_count || 0}
-          carsLimit={user?.cars_limit || 2}
-          onClose={() => setAddCarModalOpen(false)}
           onSuccess={loadData}
         />
       )}

@@ -1,23 +1,21 @@
 "use client";
 
 import React, { useState } from "react";
-import { Plus, Car as CarIcon, Calendar, User, ChevronRight, DollarSign } from "lucide-react";
+import { Plus, Car as CarIcon, Calendar, User, ChevronRight } from "lucide-react";
 import { CarListItem } from "@/types/fleet";
 import { formatDate, formatUSD, getCarStatusInfo } from "@/lib/utils";
 
 interface CarsTabProps {
   cars: CarListItem[];
   loading: boolean;
-  canAddCar: boolean;
-  onAddCarClick: () => void;
+  onNavigateTab: (tab: "dashboard" | "cars" | "contract" | "settings") => void;
   onSelectCar: (carId: number) => void;
 }
 
 export function CarsTab({
   cars,
   loading,
-  canAddCar,
-  onAddCarClick,
+  onNavigateTab,
   onSelectCar,
 }: CarsTabProps) {
   const [filter, setFilter] = useState<"all" | "available" | "rented" | "maintenance">("all");
@@ -29,30 +27,21 @@ export function CarsTab({
 
   return (
     <div className="space-y-4">
-      {/* Header and Add Button */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 leading-tight">
-            Avtomobillar
-          </h1>
-          <p className="text-xs text-slate-500">
-            Jami {cars.length} ta mashina
-          </p>
-        </div>
-        <button
-          onClick={onAddCarClick}
-          className="flex items-center gap-1.5 py-2 px-3.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl shadow-xs transition"
-        >
-          <Plus className="w-4 h-4" />
-          Mashina qo'shish
-        </button>
+      {/* Header (No standalone Add Car button) */}
+      <div>
+        <h1 className="text-xl font-bold text-slate-900 leading-tight">
+          Avtomobillar
+        </h1>
+        <p className="text-xs text-slate-500">
+          Jami {cars.length} ta mashina
+        </p>
       </div>
 
       {/* Filter Tabs */}
       <div className="flex p-1 bg-slate-200/70 rounded-xl text-xs font-medium text-slate-600">
         <button
           onClick={() => setFilter("all")}
-          className={`flex-1 py-1.5 rounded-lg transition ${
+          className={`flex-1 py-1.5 rounded-lg transition cursor-pointer ${
             filter === "all" ? "bg-white text-slate-900 font-semibold shadow-xs" : "hover:text-slate-900"
           }`}
         >
@@ -60,15 +49,15 @@ export function CarsTab({
         </button>
         <button
           onClick={() => setFilter("available")}
-          className={`flex-1 py-1.5 rounded-lg transition ${
+          className={`flex-1 py-1.5 rounded-lg transition cursor-pointer ${
             filter === "available" ? "bg-white text-emerald-700 font-semibold shadow-xs" : "hover:text-slate-900"
           }`}
         >
-          Bo'sh ({cars.filter((c) => c.status === "available").length})
+          Bo&apos;sh ({cars.filter((c) => c.status === "available").length})
         </button>
         <button
           onClick={() => setFilter("rented")}
-          className={`flex-1 py-1.5 rounded-lg transition ${
+          className={`flex-1 py-1.5 rounded-lg transition cursor-pointer ${
             filter === "rented" ? "bg-white text-blue-700 font-semibold shadow-xs" : "hover:text-slate-900"
           }`}
         >
@@ -76,11 +65,11 @@ export function CarsTab({
         </button>
         <button
           onClick={() => setFilter("maintenance")}
-          className={`flex-1 py-1.5 rounded-lg transition ${
+          className={`flex-1 py-1.5 rounded-lg transition cursor-pointer ${
             filter === "maintenance" ? "bg-white text-amber-700 font-semibold shadow-xs" : "hover:text-slate-900"
           }`}
         >
-          Ta'mirda ({cars.filter((c) => c.status === "maintenance").length})
+          Ta&apos;mirda ({cars.filter((c) => c.status === "maintenance").length})
         </button>
       </div>
 
@@ -97,19 +86,23 @@ export function CarsTab({
           </div>
           <div>
             <h3 className="font-semibold text-slate-900 text-sm">
-              Mashina topilmadi
+              {cars.length === 0 ? "Avtomobillar mavjud emas" : "Mashina topilmadi"}
             </h3>
             <p className="text-xs text-slate-500 max-w-xs mx-auto mt-1">
-              Ushbu filtr bo'yicha avtomobillar mavjud emas. Yangi avtomobil qo'shishingiz mumkin.
+              {cars.length === 0
+                ? "Avtomobillar mavjud emas. Yangi shartnoma tuzish orqali birinchi mashinangizni qo'shing."
+                : "Ushbu filtr bo'yicha avtomobillar topilmadi."}
             </p>
           </div>
-          <button
-            onClick={onAddCarClick}
-            className="inline-flex items-center gap-1.5 py-2 px-4 bg-blue-50 text-blue-700 hover:bg-blue-100 text-xs font-semibold rounded-xl transition"
-          >
-            <Plus className="w-4 h-4" />
-            Mashina qo'shish
-          </button>
+          {cars.length === 0 && (
+            <button
+              onClick={() => onNavigateTab("contract")}
+              className="inline-flex items-center gap-1.5 py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl transition shadow-xs cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              ➕ Yangi shartnoma tuzish
+            </button>
+          )}
         </div>
       ) : (
         <div className="space-y-2.5">
@@ -157,7 +150,7 @@ export function CarsTab({
                       {activeContract.next_due_date && (
                         <p className="text-[10px] text-slate-400 flex items-center justify-end gap-1">
                           <Calendar className="w-2.5 h-2.5" />
-                          To'lov: {formatDate(activeContract.next_due_date)}
+                          To&apos;lov: {formatDate(activeContract.next_due_date)}
                         </p>
                       )}
                     </div>

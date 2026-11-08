@@ -222,7 +222,9 @@ export interface CalculateResponse {
 }
 
 export interface CreateContractPayload {
-  car_id: number;
+  car_id?: number;
+  car_name?: string;
+  plate_number?: string;
   driver_id?: number;
   driver_full_name?: string;
   driver_phone?: string;

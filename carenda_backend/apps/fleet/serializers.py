@@ -208,7 +208,9 @@ class CalculateContractSerializer(serializers.Serializer):
 
 
 class ContractCreateSerializer(serializers.Serializer):
-    car_id = serializers.IntegerField()
+    car_id = serializers.IntegerField(required=False, allow_null=True)
+    car_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    plate_number = serializers.CharField(max_length=30, required=False, allow_blank=True)
     driver_id = serializers.IntegerField(required=False, allow_null=True)
     driver_full_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
     driver_phone = serializers.CharField(max_length=25, required=False, allow_blank=True)
@@ -225,9 +227,18 @@ class ContractCreateSerializer(serializers.Serializer):
     start_date = serializers.DateField()
 
     def validate(self, data):
+        car_id = data.get("car_id")
+        car_name = (data.get("car_name") or "").strip()
+        plate_number = (data.get("plate_number") or "").strip()
+
+        if not car_id and (not car_name or not plate_number):
+            raise serializers.ValidationError(
+                "Mashina tanlang yoki yangi mashina ma'lumotlarini (nomi va davlat raqami) kiriting."
+            )
+
         driver_id = data.get("driver_id")
-        full_name = data.get("driver_full_name")
-        phone = data.get("driver_phone")
+        full_name = (data.get("driver_full_name") or "").strip()
+        phone = (data.get("driver_phone") or "").strip()
 
         if not driver_id and (not full_name or not phone):
             raise serializers.ValidationError(

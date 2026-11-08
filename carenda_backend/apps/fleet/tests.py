@@ -1149,6 +1149,170 @@ class PerformanceAndCachingTests(TestCase):
         self.assertEqual(data["user_schedule"][0]["car_name"], "Driver Car")
 
 
+class InlineCarContractCreationTests(TestCase):
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.owner = User.objects.create_user(
+            username="inline_owner",
+            email="inline_owner@carenda.uz",
+            password="securepass123",
+            role=User.RoleChoices.OWNER,
+            full_name="Inline Arendator",
+            phone="+998901239988",
+            telegram_id=999111222,
+            cars_limit=3,
+            expires_at=timezone.now() + timedelta(days=30),
+            is_registered=True,
+        )
+        self.driver = Driver.objects.create(
+            owner=self.owner,
+            full_name="Inline Driver",
+            phone="+998909876543",
+        )
+        self.client_api = APIClient()
+        self.client_api.force_authenticate(user=self.owner)
+
+    def test_inline_car_and_contract_creation_service(self):
+        contract = create_contract_service(
+            owner=self.owner,
+            car_name="Chevrolet Gentra",
+            plate_number="01g777gg",
+            driver=self.driver,
+            car_price=Decimal("12000.00"),
+            initial_payment=Decimal("2000.00"),
+            annual_percent=Decimal("20.00"),
+            months_count=12,
+            payment_day=10,
+            start_date=timezone.localdate(),
+        )
+        self.assertIsNotNone(contract.pk)
+        self.assertEqual(contract.car.name, "Chevrolet Gentra")
+        self.assertEqual(contract.car.plate_number, "01G777GG")
+        self.assertEqual(contract.car.status, Car.Status.RENTED)
+        self.assertEqual(contract.car.owner, self.owner)
+        self.assertEqual(contract.payments.count(), 12)
+
+    def test_inline_car_reuses_available_car(self):
+        existing_car = Car.objects.create(
+            owner=self.owner,
+            name="Old Cobalt",
+            plate_number="01C555CC",
+            default_price=Decimal("9000.00"),
+            status=Car.Status.AVAILABLE,
+        )
+        contract = create_contract_service(
+            owner=self.owner,
+            car_name="Updated Cobalt",
+            plate_number="01c555cc",
+            driver=self.driver,
+            car_price=Decimal("10500.00"),
+            initial_payment=Decimal("1500.00"),
+            annual_percent=Decimal("20.00"),
+            months_count=12,
+            payment_day=15,
+            start_date=timezone.localdate(),
+        )
+        existing_car.refresh_from_db()
+        self.assertEqual(contract.car.id, existing_car.id)
+        self.assertEqual(existing_car.name, "Updated Cobalt")
+        self.assertEqual(existing_car.status, Car.Status.RENTED)
+        self.assertEqual(existing_car.default_price, Decimal("10500.00"))
+
+    def test_inline_car_duplicate_active_plate_raises_error(self):
+        create_contract_service(
+            owner=self.owner,
+            car_name="Chevrolet Cobalt",
+            plate_number="01C111CC",
+            driver=self.driver,
+            car_price=Decimal("10000.00"),
+            initial_payment=Decimal("2000.00"),
+            annual_percent=Decimal("20.00"),
+            months_count=12,
+            payment_day=10,
+            start_date=timezone.localdate(),
+        )
+
+        with self.assertRaises(ValidationError) as ctx:
+            create_contract_service(
+                owner=self.owner,
+                car_name="Duplicate Cobalt",
+                plate_number="01c111cc",
+                driver=self.driver,
+                car_price=Decimal("10000.00"),
+                initial_payment=Decimal("2000.00"),
+                annual_percent=Decimal("20.00"),
+                months_count=12,
+                payment_day=10,
+                start_date=timezone.localdate(),
+            )
+        self.assertIn("faol shartnoma mavjud", str(ctx.exception))
+
+    def test_inline_car_respects_cars_limit(self):
+        # self.owner has cars_limit=3
+        while self.owner.cars.count() < self.owner.cars_limit:
+            idx = self.owner.cars.count()
+            Car.objects.create(
+                owner=self.owner,
+                name=f"Quota Car {idx}",
+                plate_number=f"01Q{idx:03d}QQ",
+                status=Car.Status.AVAILABLE,
+            )
+
+        with self.assertRaises(ValidationError) as ctx:
+            create_contract_service(
+                owner=self.owner,
+                car_name="Exceeds Quota Car",
+                plate_number="01E999EE",
+                driver=self.driver,
+                car_price=Decimal("15000.00"),
+                initial_payment=Decimal("3000.00"),
+                annual_percent=Decimal("20.00"),
+                months_count=12,
+                payment_day=10,
+                start_date=timezone.localdate(),
+            )
+        self.assertIn("limiti to'lgan", str(ctx.exception))
+
+    def test_contract_api_inline_car_creation(self):
+        payload = {
+            "car_name": "Kia K5",
+            "plate_number": "01k555kk",
+            "driver_id": self.driver.id,
+            "car_price": "25000.00",
+            "initial_payment": "5000.00",
+            "annual_percent": "20.00",
+            "months_count": 24,
+            "payment_day": 5,
+            "start_date": str(timezone.localdate()),
+        }
+
+        res = self.client_api.post("/api/v1/contracts/", payload, format="json")
+        self.assertEqual(res.status_code, 201)
+        data = res.json()
+        self.assertEqual(data["car_name"], "Kia K5")
+        self.assertEqual(data["plate_number"], "01K555KK")
+        self.assertEqual(len(data["payments"]), 24)
+
+        created_car = Car.objects.get(owner=self.owner, plate_number="01K555KK")
+        self.assertEqual(created_car.status, Car.Status.RENTED)
+
+    def test_contract_api_requires_car_or_inline_details(self):
+        payload = {
+            "driver_id": self.driver.id,
+            "car_price": "10000.00",
+            "initial_payment": "2000.00",
+            "annual_percent": "20.00",
+            "months_count": 12,
+            "payment_day": 10,
+            "start_date": str(timezone.localdate()),
+        }
+        res = self.client_api.post("/api/v1/contracts/", payload, format="json")
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("non_field_errors", res.json())
+
+
+
 
 
 

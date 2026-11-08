@@ -466,7 +466,10 @@ class ContractListCreateAPIView(APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         data = serializer.validated_data
-        car = get_object_or_404(Car, id=data["car_id"], owner=owner)
+        car_id = data.get("car_id")
+        car = None
+        if car_id:
+            car = get_object_or_404(Car, id=car_id, owner=owner)
 
         driver_id = data.get("driver_id")
         if driver_id:
@@ -482,6 +485,8 @@ class ContractListCreateAPIView(APIView):
             contract = create_contract_service(
                 owner=owner,
                 car=car,
+                car_name=data.get("car_name"),
+                plate_number=data.get("plate_number"),
                 driver=driver,
                 car_price=data["car_price"],
                 initial_payment=data.get("initial_payment", Decimal("0.00")),
