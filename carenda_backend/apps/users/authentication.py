@@ -69,6 +69,7 @@ class TelegramWebAppAuthentication(BaseAuthentication):
                 "role": User.RoleChoices.OWNER,
                 "plan": User.Plan.TRIAL,
                 "cars_limit": 10,
+                "is_registered": True,
                 "expires_at": timezone.now() + timedelta(days=365),
             },
         )

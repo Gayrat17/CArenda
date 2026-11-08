@@ -11,6 +11,8 @@ class UserAdmin(BaseUserAdmin):
         "username",
         "full_name",
         "role",
+        "tenant_code",
+        "is_registered",
         "parent_owner",
         "phone",
         "telegram_id",
@@ -20,8 +22,8 @@ class UserAdmin(BaseUserAdmin):
         "is_subscription_active",
         "is_active",
     )
-    list_filter = ("role", "plan", "is_active", "is_staff", "is_superuser")
-    search_fields = ("username", "full_name", "phone", "telegram_id", "email")
+    list_filter = ("role", "is_registered", "plan", "is_active", "is_staff", "is_superuser")
+    search_fields = ("username", "full_name", "phone", "tenant_code", "telegram_id", "email")
     ordering = ("-id",)
     raw_id_fields = ("parent_owner",)
 
@@ -42,7 +44,7 @@ class UserAdmin(BaseUserAdmin):
         ),
         (
             "Carenda Role & Multi-Tenancy",
-            {"fields": ("role", "parent_owner")},
+            {"fields": ("role", "tenant_code", "is_registered", "parent_owner")},
         ),
         (
             "Carenda SaaS Subscription",

@@ -12,6 +12,8 @@ import {
   Car,
   FileSpreadsheet,
   Download,
+  Copy,
+  Check,
 } from "lucide-react";
 import { DashboardResponse, OverduePaymentItem, User } from "@/types/fleet";
 import { formatDate, formatUSD } from "@/lib/utils";
@@ -34,6 +36,18 @@ export function DashboardTab({
   onNavigateTab,
 }: DashboardTabProps) {
   const [downloadingExcel, setDownloadingExcel] = useState(false);
+  const [copiedCode, setCopiedCode] = useState(false);
+
+  const handleCopyTenantCode = async () => {
+    if (!user?.tenant_code) return;
+    try {
+      await navigator.clipboard.writeText(user.tenant_code);
+      setCopiedCode(true);
+      setTimeout(() => setCopiedCode(false), 2000);
+    } catch {
+      // ignore
+    }
+  };
 
   const handleDownloadExcel = async () => {
     try {
@@ -79,6 +93,17 @@ export function DashboardTab({
                 <span className="px-2 py-0.5 text-[10px] font-bold uppercase bg-rose-100 text-rose-800 rounded-md">
                   Super Admin
                 </span>
+              )}
+              {user?.tenant_code && (
+                <button
+                  type="button"
+                  onClick={handleCopyTenantCode}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-mono font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-md transition"
+                  title="Arendator kodi (nusxalash uchun bosing)"
+                >
+                  {copiedCode ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                  <span>{user.tenant_code}</span>
+                </button>
               )}
             </div>
             {user?.role === "staff" && user?.parent_owner_name && (

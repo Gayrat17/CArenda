@@ -1,5 +1,7 @@
 from datetime import timedelta
 from decimal import Decimal
+import random
+import string
 
 from django.contrib.auth.models import AbstractUser
 from django.db import models
@@ -8,6 +10,15 @@ from django.utils import timezone
 
 def get_default_expires_at():
     return timezone.now() + timedelta(days=14)
+
+
+def generate_unique_tenant_code() -> str:
+    from apps.users.models import User
+    while True:
+        suffix = "".join(random.choices(string.ascii_uppercase + string.digits, k=4))
+        code = f"AR-{suffix}"
+        if not User.objects.filter(tenant_code=code).exists():
+            return code
 
 
 class User(AbstractUser):
@@ -20,6 +31,7 @@ class User(AbstractUser):
         SUPERADMIN = "superadmin", "Super Admin"
         OWNER = "owner", "Arendator"
         STAFF = "staff", "Menejer/Xodim"
+        CLIENT = "client", "Mijoz (Haydovchi)"
 
     role = models.CharField(
         max_length=20,
@@ -33,8 +45,22 @@ class User(AbstractUser):
         null=True,
         blank=True,
         related_name="staff_members",
-        help_text="If role is staff, points to the Arendator owner",
+        help_text="If role is staff or client, points to the Arendator owner",
         verbose_name="Arendator rahbari",
+    )
+    tenant_code = models.CharField(
+        max_length=12,
+        unique=True,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Unique code for Arendator, e.g. AR-4829",
+        verbose_name="Arendator maxsus kodi",
+    )
+    is_registered = models.BooleanField(
+        default=False,
+        verbose_name="Ro'yxatdan o'tgan",
+        help_text="True only after phone verification in Telegram Bot",
     )
     telegram_id = models.BigIntegerField(
         unique=True,
@@ -72,14 +98,25 @@ class User(AbstractUser):
         verbose_name = "User"
         verbose_name_plural = "Users"
 
+    def save(self, *args, **kwargs):
+        # Auto-generate unique tenant_code for owner if not set
+        if self.role == self.RoleChoices.OWNER and not self.tenant_code:
+            while True:
+                suffix = "".join(random.choices(string.ascii_uppercase + string.digits, k=4))
+                code = f"AR-{suffix}"
+                if not User.objects.filter(tenant_code=code).exclude(pk=self.pk).exists():
+                    self.tenant_code = code
+                    break
+        super().save(*args, **kwargs)
+
     @property
     def tenant_owner(self):
         """
         Returns the tenant owner for row-level multi-tenancy.
-        If user is a staff member with parent_owner, returns parent_owner.
+        If user is a staff or client member with parent_owner, returns parent_owner.
         Otherwise, returns self.
         """
-        if self.role == self.RoleChoices.STAFF and self.parent_owner:
+        if self.role in (self.RoleChoices.STAFF, self.RoleChoices.CLIENT) and self.parent_owner:
             return self.parent_owner
         return self
 
@@ -94,6 +131,10 @@ class User(AbstractUser):
     @property
     def is_staff_member(self) -> bool:
         return bool(self.role == self.RoleChoices.STAFF)
+
+    @property
+    def is_client(self) -> bool:
+        return bool(self.role == self.RoleChoices.CLIENT)
 
     @property
     def is_subscription_active(self) -> bool:

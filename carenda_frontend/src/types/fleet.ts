@@ -1,5 +1,5 @@
 export type UserPlan = "trial" | "basic" | "pro";
-export type UserRole = "superadmin" | "owner" | "staff";
+export type UserRole = "superadmin" | "owner" | "staff" | "client";
 
 export interface User {
   id: number;
@@ -8,8 +8,11 @@ export interface User {
   full_name: string;
   phone: string;
   role: UserRole;
+  tenant_code?: string | null;
+  is_registered?: boolean;
   parent_owner?: number | null;
   parent_owner_name?: string | null;
+  driver_id?: number | null;
   plan: UserPlan;
   cars_limit: number;
   cars_count: number;
@@ -17,6 +20,42 @@ export interface User {
   is_subscription_active: boolean;
   can_add_car: boolean;
   default_annual_percent: string;
+}
+
+export interface ClientPaymentScheduleItem {
+  id: number;
+  month_number: number;
+  due_date: string;
+  expected_amount: string;
+  paid_amount: string;
+  remaining_amount: string;
+  status: "pending" | "partial" | "paid";
+  paid_at: string | null;
+  comment: string;
+  days_overdue: number;
+}
+
+export interface ClientContract {
+  id: number;
+  is_active: boolean;
+  car_name: string;
+  plate_number: string;
+  owner_name: string;
+  owner_phone: string;
+  car_price: string;
+  initial_payment: string;
+  principal_amount: string;
+  total_amount: string;
+  monthly_amount: string;
+  annual_percent: string;
+  months_count: number;
+  payment_day: number;
+  start_date: string;
+  paid_total_usd: string;
+  remaining_total_usd: string;
+  next_due_date: string | null;
+  next_due_amount: string | null;
+  payments: ClientPaymentScheduleItem[];
 }
 
 export interface MeResponse extends User {}

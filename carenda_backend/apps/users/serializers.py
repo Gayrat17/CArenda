@@ -5,8 +5,11 @@ from apps.users.models import User, UserSetting
 
 class UserMeSerializer(serializers.ModelSerializer):
     role = serializers.CharField()
+    tenant_code = serializers.CharField(read_only=True)
+    is_registered = serializers.BooleanField(read_only=True)
     parent_owner = serializers.PrimaryKeyRelatedField(read_only=True)
     parent_owner_name = serializers.SerializerMethodField()
+    driver_id = serializers.SerializerMethodField()
     cars_count = serializers.SerializerMethodField()
     cars_limit = serializers.SerializerMethodField()
     plan = serializers.SerializerMethodField()
@@ -23,8 +26,11 @@ class UserMeSerializer(serializers.ModelSerializer):
             "full_name",
             "phone",
             "role",
+            "tenant_code",
+            "is_registered",
             "parent_owner",
             "parent_owner_name",
+            "driver_id",
             "plan",
             "cars_limit",
             "cars_count",
@@ -41,6 +47,11 @@ class UserMeSerializer(serializers.ModelSerializer):
                 or obj.parent_owner.username
                 or str(obj.parent_owner.id)
             )
+        return None
+
+    def get_driver_id(self, obj: User) -> int | None:
+        if hasattr(obj, "driver_profile") and obj.driver_profile:
+            return obj.driver_profile.id
         return None
 
     def get_cars_count(self, obj: User) -> int:

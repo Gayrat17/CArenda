@@ -41,6 +41,7 @@ class DriverAdmin(admin.ModelAdmin):
         "full_name",
         "phone",
         "owner",
+        "user",
         "passport_info",
         "created_at",
     )
@@ -50,8 +51,9 @@ class DriverAdmin(admin.ModelAdmin):
         "passport_info",
         "owner__username",
         "owner__full_name",
+        "user__username",
     )
-    raw_id_fields = ("owner",)
+    raw_id_fields = ("owner", "user")
 
 
 @admin.register(Contract)

@@ -100,6 +100,25 @@ class UserModelTests(TestCase):
         self.user.expires_at = timezone.now() - timedelta(days=1)
         self.assertFalse(self.user.can_add_car)
 
+    def test_owner_tenant_code_auto_generation(self):
+        self.assertIsNotNone(self.user.tenant_code)
+        self.assertTrue(self.user.tenant_code.startswith("AR-"))
+        self.assertEqual(len(self.user.tenant_code), 7)
+
+    def test_client_role_properties(self):
+        client = User.objects.create_user(
+            username="driver_user",
+            full_name="Haydovchi Bobur",
+            role=User.RoleChoices.CLIENT,
+            parent_owner=self.user,
+            phone="+998901112233",
+            is_registered=True,
+        )
+        self.assertTrue(client.is_client)
+        self.assertFalse(client.is_owner)
+        self.assertFalse(client.is_staff_member)
+        self.assertTrue(client.is_registered)
+
     def test_staff_role_and_parent_owner_tenancy(self):
         staff = User.objects.create_user(
             username="manager1",

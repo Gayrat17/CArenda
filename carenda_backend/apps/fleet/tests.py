@@ -851,3 +851,90 @@ class ExcelExportAndNotificationTests(TestCase):
         self.assertIsNone(text_after_paid)
 
 
+class ClientPortalAndPermissionTests(TestCase):
+    def setUp(self):
+        from apps.fleet.models import normalize_phone
+
+        self.normalize_phone = normalize_phone
+        self.owner = User.objects.create_user(
+            username="owner_farhod",
+            full_name="Farhod Arendator",
+            phone="+998901112233",
+            role=User.RoleChoices.OWNER,
+            cars_limit=5,
+            expires_at=timezone.now() + timedelta(days=30),
+        )
+        self.car = Car.objects.create(
+            owner=self.owner,
+            name="Chevrolet Onix",
+            plate_number="01O999OO",
+            default_price=Decimal("16000.00"),
+            status=Car.Status.AVAILABLE,
+        )
+        self.client_user = User.objects.create_user(
+            username="client_dilshod",
+            full_name="Dilshod Haydovchi",
+            phone="+998909876543",
+            role=User.RoleChoices.CLIENT,
+            parent_owner=self.owner,
+            is_registered=True,
+        )
+        self.driver = Driver.objects.create(
+            owner=self.owner,
+            user=self.client_user,
+            full_name="Dilshod Haydovchi",
+            phone="+998909876543",
+            passport_info="AB9998877",
+        )
+        self.contract = create_contract_service(
+            owner=self.owner,
+            car=self.car,
+            driver=self.driver,
+            car_price=Decimal("15000.00"),
+            initial_payment=Decimal("3000.00"),
+            annual_percent=Decimal("20.00"),
+            months_count=12,
+            payment_day=15,
+            start_date=timezone.localdate(),
+        )
+
+        self.client_api = APIClient()
+        self.client_api.force_authenticate(user=self.client_user)
+
+    def test_normalize_phone_helper(self):
+        self.assertEqual(self.normalize_phone("+998 90 123-45-67"), "901234567")
+        self.assertEqual(self.normalize_phone("8901234567"), "901234567")
+        self.assertEqual(self.normalize_phone("+998 (90) 123 45 67"), "901234567")
+        self.assertEqual(self.normalize_phone("901234567"), "901234567")
+        self.assertEqual(self.normalize_phone(""), "")
+
+    def test_client_can_view_my_contracts(self):
+        response = self.client_api.get("/api/v1/client/my-contracts/")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data), 1)
+        contract_data = data[0]
+        self.assertEqual(contract_data["car_name"], "Chevrolet Onix")
+        self.assertEqual(contract_data["plate_number"], "01O999OO")
+        self.assertEqual(contract_data["owner_name"], "Farhod Arendator")
+        self.assertEqual(len(contract_data["payments"]), 12)
+
+    def test_client_is_forbidden_from_arendator_endpoints(self):
+        # Client cannot view dashboard
+        dash_resp = self.client_api.get("/api/v1/dashboard/")
+        self.assertEqual(dash_resp.status_code, 403)
+
+        # Client cannot view or manage cars
+        cars_resp = self.client_api.get("/api/v1/cars/")
+        self.assertEqual(cars_resp.status_code, 403)
+
+        # Client cannot view drivers list
+        drivers_resp = self.client_api.get("/api/v1/drivers/")
+        self.assertEqual(drivers_resp.status_code, 403)
+
+        # Client cannot export excel
+        excel_resp = self.client_api.get("/api/v1/export/excel/")
+        self.assertEqual(excel_resp.status_code, 403)
+
+
+

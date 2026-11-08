@@ -1,8 +1,22 @@
+import re
 from decimal import Decimal
 
 from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+
+
+def normalize_phone(phone: str) -> str:
+    """
+    Normalizes a phone number by stripping all non-digits and returning the last 9 digits.
+    For example: '+998 (90) 123-45-67' -> '901234567'
+                 '998901234567'        -> '901234567'
+                 '901234567'           -> '901234567'
+    """
+    if not phone:
+        return ""
+    digits = re.sub(r"\D", "", str(phone))
+    return digits[-9:] if len(digits) >= 9 else digits
 
 
 class Car(models.Model):
@@ -55,6 +69,15 @@ class Driver(models.Model):
         related_name="drivers",
         verbose_name="Owner",
     )
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="driver_profile",
+        help_text="Linked Telegram User account for this driver",
+        verbose_name="Bog'langan Telegram foydalanuvchisi",
+    )
     full_name = models.CharField(max_length=150, verbose_name="Full Name")
     phone = models.CharField(max_length=25, verbose_name="Phone Number")
     passport_info = models.CharField(
@@ -66,6 +89,10 @@ class Driver(models.Model):
     class Meta:
         verbose_name = "Driver"
         verbose_name_plural = "Drivers"
+
+    @property
+    def normalized_phone(self) -> str:
+        return normalize_phone(self.phone)
 
     def __str__(self):
         return f"{self.full_name} ({self.phone})"

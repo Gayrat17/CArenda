@@ -18,6 +18,8 @@ import { SettingsTab } from "@/components/SettingsTab";
 import { PaymentModal } from "@/components/PaymentModal";
 import { AddCarModal } from "@/components/AddCarModal";
 import { CarDetailModal } from "@/components/CarDetailModal";
+import { ClientPortalView } from "@/components/ClientPortalView";
+import { Phone, AlertCircle } from "lucide-react";
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState<NavTab>("dashboard");
@@ -50,14 +52,22 @@ export default function Home() {
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      const [meData, dashData, carsData, driversData] = await Promise.all([
-        getMe().catch(() => null),
+      const meData = await getMe().catch(() => null);
+      if (meData) {
+        setUser(meData);
+        // If client or not registered, do not load Arendator-only datasets
+        if (meData.role === "client" || meData.is_registered === false) {
+          setLoading(false);
+          return;
+        }
+      }
+
+      const [dashData, carsData, driversData] = await Promise.all([
         getDashboard().catch(() => null),
         getCars().catch(() => []),
         getDrivers().catch(() => []),
       ]);
 
-      if (meData) setUser(meData);
       if (dashData) setDashboard(dashData);
       setCars(carsData);
       setDrivers(driversData);
@@ -124,6 +134,42 @@ export default function Home() {
   };
 
   const overdueCount = dashboard?.overdue_payments?.length || 0;
+
+  // Unregistered user check (phone verification required in Telegram Bot)
+  if (user && user.is_registered === false) {
+    return (
+      <main className="max-w-md mx-auto min-h-screen bg-slate-50 text-slate-900 p-6 flex flex-col items-center justify-center text-center">
+        <div className="w-16 h-16 bg-amber-100 text-amber-600 rounded-3xl flex items-center justify-center mb-4 shadow-xs">
+          <Phone className="w-8 h-8" />
+        </div>
+        <h2 className="text-xl font-bold text-slate-900 mb-2">
+          Ro&apos;yxatdan o&apos;tish tugallanmagan
+        </h2>
+        <p className="text-sm text-slate-600 mb-6 leading-relaxed">
+          Iltimos, Carenda tizimidan foydalanish uchun Telegram botimizda telefon raqamingizni yuboring va ro&apos;yxatdan o&apos;tishni yakunlang.
+        </p>
+        <button
+          onClick={() => {
+            if (typeof window !== "undefined" && window.Telegram?.WebApp) {
+              window.Telegram.WebApp.close?.();
+            }
+          }}
+          className="w-full py-3.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-2xl shadow-sm transition active:scale-98"
+        >
+          Telegram Botga qaytish
+        </button>
+      </main>
+    );
+  }
+
+  // If user is a Driver / Client, show the dedicated read-only client portal
+  if (user?.role === "client") {
+    return (
+      <main className="max-w-md mx-auto min-h-screen bg-slate-50 text-slate-900 pb-8 px-4 pt-4 relative">
+        <ClientPortalView user={user} onRefreshUser={loadData} />
+      </main>
+    );
+  }
 
   return (
     <main className="max-w-md mx-auto min-h-screen bg-slate-50 text-slate-900 pb-24 px-4 pt-4 relative">

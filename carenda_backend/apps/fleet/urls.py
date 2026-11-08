@@ -3,6 +3,7 @@ from django.urls import path
 from apps.fleet.views import (
     CarDetailAPIView,
     CarListCreateAPIView,
+    ClientMyContractsAPIView,
     ContractCalculateAPIView,
     ContractCloseAPIView,
     ContractDetailAPIView,
@@ -39,4 +40,7 @@ urlpatterns = [
     # Payments
     path("payments/overdue/", OverduePaymentsAPIView.as_view(), name="fleet-payments-overdue"),
     path("payments/<int:pk>/pay/", PaymentPayAPIView.as_view(), name="fleet-payment-pay"),
+
+    # Client (Driver) Read-only Portal
+    path("client/my-contracts/", ClientMyContractsAPIView.as_view(), name="client-my-contracts"),
 ]

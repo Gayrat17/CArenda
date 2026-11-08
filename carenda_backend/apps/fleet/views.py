@@ -6,7 +6,7 @@ from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -32,11 +32,23 @@ from apps.fleet.services import (
     create_contract_service,
     record_payment_service,
 )
-from apps.users.models import UserSetting
+from apps.users.models import User, UserSetting
+
+
+class IsArendator(BasePermission):
+    """Allows access only to Arendator owners, staff, or superadmins (blocks client drivers)."""
+    message = "Ushbu amalni bajarish uchun sizda arendator huquqi yo'q."
+
+    def has_permission(self, request, view):
+        return bool(
+            request.user
+            and request.user.is_authenticated
+            and request.user.role != User.RoleChoices.CLIENT
+        )
 
 
 class DashboardAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsArendator]
 
     def get(self, request):
         owner = request.user.tenant_owner
@@ -108,7 +120,7 @@ class DashboardAPIView(APIView):
 
 
 class CarListCreateAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsArendator]
 
     def get(self, request):
         owner = request.user.tenant_owner
@@ -138,7 +150,7 @@ class CarListCreateAPIView(APIView):
 
 
 class CarDetailAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsArendator]
 
     def get_object(self, request, pk):
         owner = request.user.tenant_owner
@@ -182,7 +194,7 @@ class CarDetailAPIView(APIView):
 
 
 class DriverListCreateAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsArendator]
 
     def get(self, request):
         owner = request.user.tenant_owner
@@ -200,7 +212,7 @@ class DriverListCreateAPIView(APIView):
 
 
 class DriverDetailAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsArendator]
 
     def get_object(self, request, pk):
         owner = request.user.tenant_owner
@@ -220,7 +232,7 @@ class DriverDetailAPIView(APIView):
 
 
 class ContractCalculateAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsArendator]
 
     def post(self, request):
         owner = request.user.tenant_owner
@@ -253,7 +265,7 @@ class ContractCalculateAPIView(APIView):
 
 
 class ContractListCreateAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsArendator]
 
     def get(self, request):
         owner = request.user.tenant_owner
@@ -309,7 +321,7 @@ class ContractListCreateAPIView(APIView):
 
 
 class ContractDetailAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsArendator]
 
     def get(self, request, pk):
         owner = request.user.tenant_owner
@@ -322,7 +334,7 @@ class ContractDetailAPIView(APIView):
 
 
 class ContractCloseAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsArendator]
 
     def post(self, request, pk):
         owner = request.user.tenant_owner
@@ -344,7 +356,7 @@ class ContractCloseAPIView(APIView):
 
 
 class OverduePaymentsAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsArendator]
 
     def get(self, request):
         owner = request.user.tenant_owner
@@ -381,7 +393,7 @@ class OverduePaymentsAPIView(APIView):
 
 
 class PaymentPayAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsArendator]
 
     def post(self, request, pk):
         owner = request.user.tenant_owner
@@ -409,7 +421,7 @@ class PaymentPayAPIView(APIView):
 
 
 class ExportExcelAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsArendator]
 
     def get(self, request):
         owner = request.user.tenant_owner
@@ -420,3 +432,85 @@ class ExportExcelAPIView(APIView):
         )
         response["Content-Disposition"] = 'attachment; filename="carenda_hisobot.xlsx"'
         return response
+
+
+class ClientMyContractsAPIView(APIView):
+    """
+    Read-only endpoint for Client (Driver) users to see their leased car contracts and payment schedules.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        driver = (
+            Driver.objects.filter(user=request.user)
+            .select_related("owner")
+            .first()
+        )
+        if not driver:
+            return Response([])
+
+        today = timezone.localdate()
+        contracts = (
+            Contract.objects.filter(driver=driver)
+            .select_related("car", "owner")
+            .prefetch_related("payments")
+            .order_by("-is_active", "-created_at")
+        )
+
+        results = []
+        for c in contracts:
+            payments_qs = c.payments.all().order_by("month_number")
+            paid_total = sum(p.paid_amount for p in payments_qs)
+            remaining_total = sum(p.remaining_amount for p in payments_qs)
+            next_p = payments_qs.filter(
+                status__in=[Payment.Status.PENDING, Payment.Status.PARTIAL]
+            ).first()
+
+            payments_list = []
+            for p in payments_qs:
+                days_overdue = 0
+                if p.status != Payment.Status.PAID and p.due_date < today:
+                    days_overdue = (today - p.due_date).days
+                payments_list.append(
+                    {
+                        "id": p.id,
+                        "month_number": p.month_number,
+                        "due_date": str(p.due_date),
+                        "expected_amount": f"{p.expected_amount:.2f}",
+                        "paid_amount": f"{p.paid_amount:.2f}",
+                        "remaining_amount": f"{p.remaining_amount:.2f}",
+                        "status": p.status,
+                        "paid_at": str(p.paid_at) if p.paid_at else None,
+                        "comment": p.comment,
+                        "days_overdue": max(0, days_overdue),
+                    }
+                )
+
+            results.append(
+                {
+                    "id": c.id,
+                    "is_active": c.is_active,
+                    "car_name": c.car.name,
+                    "plate_number": c.car.plate_number,
+                    "owner_name": c.owner.full_name or c.owner.username or "Arendator",
+                    "owner_phone": c.owner.phone,
+                    "car_price": f"{c.car_price:.2f}",
+                    "initial_payment": f"{c.initial_payment:.2f}",
+                    "principal_amount": f"{c.principal_amount:.2f}",
+                    "total_amount": f"{c.total_amount:.2f}",
+                    "monthly_amount": f"{c.monthly_amount:.2f}",
+                    "annual_percent": f"{c.annual_percent:.2f}",
+                    "months_count": c.months_count,
+                    "payment_day": c.payment_day,
+                    "start_date": str(c.start_date),
+                    "paid_total_usd": f"{paid_total:.2f}",
+                    "remaining_total_usd": f"{remaining_total:.2f}",
+                    "next_due_date": str(next_p.due_date) if next_p else None,
+                    "next_due_amount": (
+                        f"{next_p.remaining_amount:.2f}" if next_p else None
+                    ),
+                    "payments": payments_list,
+                }
+            )
+
+        return Response(results)

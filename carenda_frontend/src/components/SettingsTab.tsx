@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { User, Shield, Check, Save, Sparkles, AlertCircle, Lock } from "lucide-react";
+import { User, Shield, Check, Save, Sparkles, AlertCircle, Lock, Copy } from "lucide-react";
 import { User as UserType } from "@/types/fleet";
 import { updateMe } from "@/lib/api";
 import { formatDateTime } from "@/lib/utils";
@@ -20,6 +20,7 @@ export function SettingsTab({ user, onRefreshUser }: SettingsTabProps) {
   );
   const [loading, setLoading] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [copiedCode, setCopiedCode] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -66,6 +67,17 @@ export function SettingsTab({ user, onRefreshUser }: SettingsTabProps) {
   };
 
   const presetPercents = ["15.00", "20.00", "25.00", "30.00"];
+
+  const handleCopyCode = async () => {
+    if (!user?.tenant_code) return;
+    try {
+      await navigator.clipboard.writeText(user.tenant_code);
+      setCopiedCode(true);
+      setTimeout(() => setCopiedCode(false), 2000);
+    } catch {
+      // fallback
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -134,6 +146,36 @@ export function SettingsTab({ user, onRefreshUser }: SettingsTabProps) {
           </div>
         </div>
       </div>
+
+      {/* Tenant Code Card for Owner */}
+      {user?.role === "owner" && user?.tenant_code && (
+        <div className="bg-blue-50 border border-blue-200 p-4 rounded-2xl shadow-xs space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-blue-900 uppercase tracking-wide">
+              Arendator Kodingiz
+            </span>
+            <span className="text-[10px] bg-blue-100 text-blue-800 font-semibold px-2 py-0.5 rounded-full">
+              Mijozlar uchun
+            </span>
+          </div>
+          <div className="flex items-center justify-between bg-white px-3.5 py-2.5 rounded-xl border border-blue-200">
+            <span className="font-mono font-extrabold text-lg tracking-wider text-blue-700">
+              {user.tenant_code}
+            </span>
+            <button
+              type="button"
+              onClick={handleCopyCode}
+              className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition active:scale-95"
+            >
+              {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
+              <span>{copiedCode ? "Nusxalandi" : "Nusxalash"}</span>
+            </button>
+          </div>
+          <p className="text-[11px] text-blue-700 leading-relaxed">
+            Mijozlaringiz (haydovchilar) botga kirganda shartnomalarini ko&apos;rish uchun ushbu kodni kiritishi lozim.
+          </p>
+        </div>
+      )}
 
       {/* Profile and Settings Form */}
       <form onSubmit={handleSubmit} className="space-y-4">
