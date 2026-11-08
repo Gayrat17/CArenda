@@ -1,7 +1,10 @@
 import type { NextConfig } from "next";
 
+const BACKEND_INTERNAL_URL =
+  process.env.BACKEND_INTERNAL_URL || "http://127.0.0.1:8000";
+
 const nextConfig: NextConfig = {
-  /* config options here */
+  output: "standalone",
   cacheComponents: true,
   partialPrefetching: true,
   turbopack: {
@@ -16,7 +19,7 @@ const nextConfig: NextConfig = {
     return [
       {
         source: "/api/v1/:path*",
-        destination: "http://127.0.0.1:8000/api/v1/:path*",
+        destination: `${BACKEND_INTERNAL_URL}/api/v1/:path*`,
       },
     ];
   },

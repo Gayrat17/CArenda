@@ -1,0 +1,33 @@
+# ==========================================
+# Caddyfile for Carenda Production
+# Automatic HTTPS with Let's Encrypt
+# ==========================================
+
+{
+    email admin@carenda.uz
+}
+
+# Telegram Mini App & API Gateway
+carenda.yourdomain.uz {
+    # Reverse proxy all web traffic to Next.js frontend
+    # Next.js automatically rewrites /api/v1/* to Django backend
+    reverse_proxy localhost:3000
+
+    # Enable modern compression
+    encode gzip zstd
+
+    # Security headers
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options ALLOWALL
+        Referrer-Policy strict-origin-when-cross-origin
+    }
+
+    # Logging
+    log {
+        output file /var/log/caddy/carenda.access.log {
+            roll_size 10MB
+            roll_keep 5
+        }
+    }
+}
