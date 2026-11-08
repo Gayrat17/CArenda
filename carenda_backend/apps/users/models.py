@@ -30,8 +30,7 @@ class User(AbstractUser):
     class RoleChoices(models.TextChoices):
         SUPERADMIN = "superadmin", "Super Admin"
         OWNER = "owner", "Arendator"
-        STAFF = "staff", "Menejer/Xodim"
-        CLIENT = "client", "Mijoz (Haydovchi)"
+        USER = "user", "Foydalanuvchi (Ijarachi)"
 
     role = models.CharField(
         max_length=20,
@@ -44,8 +43,8 @@ class User(AbstractUser):
         on_delete=models.CASCADE,
         null=True,
         blank=True,
-        related_name="staff_members",
-        help_text="If role is staff or client, points to the Arendator owner",
+        related_name="sub_users",
+        help_text="If role is user (driver), points to the Arendator owner",
         verbose_name="Arendator rahbari",
     )
     tenant_code = models.CharField(
@@ -99,7 +98,7 @@ class User(AbstractUser):
         verbose_name_plural = "Users"
 
     def save(self, *args, **kwargs):
-        # Auto-generate unique tenant_code for owner if not set
+        # Auto-generate unique tenant_code ONLY for owner if not set
         if self.role == self.RoleChoices.OWNER and not self.tenant_code:
             while True:
                 suffix = "".join(random.choices(string.ascii_uppercase + string.digits, k=4))
@@ -107,16 +106,18 @@ class User(AbstractUser):
                 if not User.objects.filter(tenant_code=code).exclude(pk=self.pk).exists():
                     self.tenant_code = code
                     break
+        elif self.role != self.RoleChoices.OWNER and self.tenant_code:
+            self.tenant_code = None
         super().save(*args, **kwargs)
 
     @property
     def tenant_owner(self):
         """
         Returns the tenant owner for row-level multi-tenancy.
-        If user is a staff or client member with parent_owner, returns parent_owner.
+        If user is a user (driver) with parent_owner, returns parent_owner.
         Otherwise, returns self.
         """
-        if self.role in (self.RoleChoices.STAFF, self.RoleChoices.CLIENT) and self.parent_owner:
+        if self.role == self.RoleChoices.USER and self.parent_owner:
             return self.parent_owner
         return self
 
@@ -129,12 +130,8 @@ class User(AbstractUser):
         return bool(self.role == self.RoleChoices.OWNER)
 
     @property
-    def is_staff_member(self) -> bool:
-        return bool(self.role == self.RoleChoices.STAFF)
-
-    @property
-    def is_client(self) -> bool:
-        return bool(self.role == self.RoleChoices.CLIENT)
+    def is_user(self) -> bool:
+        return bool(self.role == self.RoleChoices.USER)
 
     @property
     def is_subscription_active(self) -> bool:

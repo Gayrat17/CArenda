@@ -875,7 +875,7 @@ class ClientPortalAndPermissionTests(TestCase):
             username="client_dilshod",
             full_name="Dilshod Haydovchi",
             phone="+998909876543",
-            role=User.RoleChoices.CLIENT,
+            role=User.RoleChoices.USER,
             parent_owner=self.owner,
             is_registered=True,
         )
@@ -908,8 +908,9 @@ class ClientPortalAndPermissionTests(TestCase):
         self.assertEqual(self.normalize_phone("901234567"), "901234567")
         self.assertEqual(self.normalize_phone(""), "")
 
-    def test_client_can_view_my_contracts(self):
-        response = self.client_api.get("/api/v1/client/my-contracts/")
+    def test_user_driver_can_view_my_schedule(self):
+        # Test /api/v1/my-schedule/
+        response = self.client_api.get("/api/v1/my-schedule/")
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(len(data), 1)
@@ -919,20 +920,33 @@ class ClientPortalAndPermissionTests(TestCase):
         self.assertEqual(contract_data["owner_name"], "Farhod Arendator")
         self.assertEqual(len(contract_data["payments"]), 12)
 
-    def test_client_is_forbidden_from_arendator_endpoints(self):
-        # Client cannot view dashboard
+        # Also test backwards compatibility endpoint /api/v1/client/my-contracts/
+        resp_compat = self.client_api.get("/api/v1/client/my-contracts/")
+        self.assertEqual(resp_compat.status_code, 200)
+
+    def test_user_driver_is_forbidden_from_arendator_endpoints(self):
+        # User driver cannot view dashboard
         dash_resp = self.client_api.get("/api/v1/dashboard/")
         self.assertEqual(dash_resp.status_code, 403)
 
-        # Client cannot view or manage cars
+        # User driver cannot view or manage cars
         cars_resp = self.client_api.get("/api/v1/cars/")
         self.assertEqual(cars_resp.status_code, 403)
 
-        # Client cannot view drivers list
+        # User driver cannot view drivers list
         drivers_resp = self.client_api.get("/api/v1/drivers/")
         self.assertEqual(drivers_resp.status_code, 403)
 
-        # Client cannot export excel
+        # User driver cannot view contracts list
+        contracts_resp = self.client_api.get("/api/v1/contracts/")
+        self.assertEqual(contracts_resp.status_code, 403)
+
+        # User driver cannot pay on behalf of owner
+        payment = self.contract.payments.first()
+        pay_resp = self.client_api.post(f"/api/v1/payments/{payment.id}/pay/", {"amount": "100.00"}, format="json")
+        self.assertEqual(pay_resp.status_code, 403)
+
+        # User driver cannot export excel
         excel_resp = self.client_api.get("/api/v1/export/excel/")
         self.assertEqual(excel_resp.status_code, 403)
 

@@ -18,7 +18,7 @@ import { SettingsTab } from "@/components/SettingsTab";
 import { PaymentModal } from "@/components/PaymentModal";
 import { AddCarModal } from "@/components/AddCarModal";
 import { CarDetailModal } from "@/components/CarDetailModal";
-import { ClientPortalView } from "@/components/ClientPortalView";
+import { UserScheduleView } from "@/components/UserScheduleView";
 import { Phone, AlertCircle } from "lucide-react";
 
 export default function Home() {
@@ -55,8 +55,8 @@ export default function Home() {
       const meData = await getMe().catch(() => null);
       if (meData) {
         setUser(meData);
-        // If client or not registered, do not load Arendator-only datasets
-        if (meData.role === "client" || meData.is_registered === false) {
+        // If user (driver) or not registered, do not load Arendator-only datasets
+        if (meData.role === "user" || meData.is_registered === false) {
           setLoading(false);
           return;
         }
@@ -162,11 +162,11 @@ export default function Home() {
     );
   }
 
-  // If user is a Driver / Client, show the dedicated read-only client portal
-  if (user?.role === "client") {
+  // If user is a Driver / Ijarachi, show the dedicated read-only schedule view
+  if (user?.role === "user") {
     return (
       <main className="max-w-md mx-auto min-h-screen bg-slate-50 text-slate-900 pb-8 px-4 pt-4 relative">
-        <ClientPortalView user={user} onRefreshUser={loadData} />
+        <UserScheduleView user={user} onRefreshUser={loadData} />
       </main>
     );
   }

@@ -1,5 +1,5 @@
 export type UserPlan = "trial" | "basic" | "pro";
-export type UserRole = "superadmin" | "owner" | "staff" | "client";
+export type UserRole = "superadmin" | "owner" | "user";
 
 export interface User {
   id: number;
@@ -57,6 +57,9 @@ export interface ClientContract {
   next_due_amount: string | null;
   payments: ClientPaymentScheduleItem[];
 }
+
+export type UserScheduleContract = ClientContract;
+export type UserScheduleItem = ClientPaymentScheduleItem;
 
 export interface MeResponse extends User {}
 

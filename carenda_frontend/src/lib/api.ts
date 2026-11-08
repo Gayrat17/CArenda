@@ -221,9 +221,11 @@ export async function downloadExcelReport(): Promise<void> {
   window.URL.revokeObjectURL(downloadUrl);
 }
 
-// Client Portal API
-export async function getClientContracts(): Promise<import("@/types/fleet").ClientContract[]> {
-  return apiFetch<import("@/types/fleet").ClientContract[]>("/client/my-contracts/");
+// User (Driver) Schedule API
+export async function getUserSchedule(): Promise<import("@/types/fleet").UserScheduleContract[]> {
+  return apiFetch<import("@/types/fleet").UserScheduleContract[]>("/my-schedule/");
 }
+
+export const getClientContracts = getUserSchedule;
 
 

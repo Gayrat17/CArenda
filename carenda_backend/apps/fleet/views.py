@@ -11,7 +11,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.fleet.excel import generate_tenant_excel_report
-from apps.fleet.models import Car, Contract, Driver, Payment
+from apps.fleet.models import Car, Contract, Driver, Payment, normalize_phone
 from apps.fleet.serializers import (
     CalculateContractSerializer,
     CarCreateUpdateSerializer,
@@ -36,14 +36,14 @@ from apps.users.models import User, UserSetting
 
 
 class IsArendator(BasePermission):
-    """Allows access only to Arendator owners, staff, or superadmins (blocks client drivers)."""
+    """Allows access only to Arendator owners or superadmins (blocks user drivers)."""
     message = "Ushbu amalni bajarish uchun sizda arendator huquqi yo'q."
 
     def has_permission(self, request, view):
         return bool(
             request.user
             and request.user.is_authenticated
-            and request.user.role != User.RoleChoices.CLIENT
+            and request.user.role in (User.RoleChoices.OWNER, User.RoleChoices.SUPERADMIN)
         )
 
 
@@ -434,9 +434,9 @@ class ExportExcelAPIView(APIView):
         return response
 
 
-class ClientMyContractsAPIView(APIView):
+class UserScheduleAPIView(APIView):
     """
-    Read-only endpoint for Client (Driver) users to see their leased car contracts and payment schedules.
+    Read-only endpoint for User (Driver) users to see their leased car contracts and payment schedules.
     """
     permission_classes = [IsAuthenticated]
 
@@ -446,6 +446,18 @@ class ClientMyContractsAPIView(APIView):
             .select_related("owner")
             .first()
         )
+        if not driver and request.user.phone:
+            normalized_user_phone = normalize_phone(request.user.phone)
+            if normalized_user_phone:
+                drivers_qs = Driver.objects.filter(owner_id=request.user.parent_owner_id or 0)
+                for d in drivers_qs:
+                    if normalize_phone(d.phone) == normalized_user_phone:
+                        driver = d
+                        if not d.user_id:
+                            d.user = request.user
+                            d.save(update_fields=["user"])
+                        break
+
         if not driver:
             return Response([])
 
@@ -490,6 +502,8 @@ class ClientMyContractsAPIView(APIView):
                 {
                     "id": c.id,
                     "is_active": c.is_active,
+                    "driver_name": driver.full_name,
+                    "driver_phone": driver.phone,
                     "car_name": c.car.name,
                     "plate_number": c.car.plate_number,
                     "owner_name": c.owner.full_name or c.owner.username or "Arendator",
@@ -514,3 +528,6 @@ class ClientMyContractsAPIView(APIView):
             )
 
         return Response(results)
+
+
+ClientMyContractsAPIView = UserScheduleAPIView

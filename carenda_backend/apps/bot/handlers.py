@@ -30,7 +30,7 @@ class RegistrationStates(StatesGroup):
     waiting_for_role = State()
     waiting_for_owner_phone = State()
     waiting_for_tenant_code = State()
-    waiting_for_client_phone = State()
+    waiting_for_user_phone = State()
 
 
 def get_role_selection_keyboard() -> ReplyKeyboardMarkup:
@@ -39,7 +39,7 @@ def get_role_selection_keyboard() -> ReplyKeyboardMarkup:
         keyboard=[
             [
                 KeyboardButton(text="🚗 Men Arendatorman"),
-                KeyboardButton(text="👤 Men Ijarachiman (Mijoz)"),
+                KeyboardButton(text="👤 Men Foydalanuvchiman (Ijarachi)"),
             ]
         ],
         resize_keyboard=True,
@@ -164,7 +164,7 @@ def register_owner_user(from_user, phone_number: str) -> User:
 
 
 @sync_to_async
-def match_and_register_client_driver(
+def match_and_register_user_driver(
     from_user, phone_number: str, target_owner_id: int
 ) -> tuple[User | None, str | None]:
     normalized_incoming = normalize_phone(phone_number)
@@ -199,14 +199,14 @@ def match_and_register_client_driver(
             "first_name": first_name,
             "last_name": last_name,
             "phone": cleaned_phone,
-            "role": User.RoleChoices.CLIENT,
+            "role": User.RoleChoices.USER,
             "parent_owner_id": target_owner_id,
             "is_registered": True,
         },
     )
 
     user.phone = cleaned_phone
-    user.role = User.RoleChoices.CLIENT
+    user.role = User.RoleChoices.USER
     user.parent_owner_id = target_owner_id
     user.is_registered = True
     if full_name:
@@ -217,6 +217,9 @@ def match_and_register_client_driver(
     matched_driver.save(update_fields=["user"])
 
     return user, matched_driver.full_name
+
+
+match_and_register_client_driver = match_and_register_user_driver
 
 
 # -----------------------------------------------------------------------------
@@ -234,10 +237,10 @@ async def handle_start(message: Message, state: FSMContext):
     # 1. Already registered user check
     if user and user.is_registered and user.phone:
         await state.clear()
-        if user.role == User.RoleChoices.CLIENT:
+        if user.role == User.RoleChoices.USER:
             welcome_text = (
                 f"Assalomu alaykum, <b>{user.full_name}</b>!\n\n"
-                f"Carenda mijoz kabinetiga xush kelibsiz.\n"
+                f"Carenda ijarachi kabinetiga xush kelibsiz.\n"
                 f"Pastdagi tugma orqali to'lovlar jadvalingiz va shartnomangizni ko'rishingiz mumkin:"
             )
             await message.answer(welcome_text, parse_mode="HTML")
@@ -247,11 +250,11 @@ async def handle_start(message: Message, state: FSMContext):
             )
             return
 
-        # Owner / Staff
+        # Owner / Superadmin
         welcome_text = (
             f"Assalomu alaykum, <b>{user.full_name}</b>!\n\n"
             f"Carenda boshqaruv tizimiga xush kelibsiz.\n"
-            f"🔑 Sizning maxsus kodingiz: <b>{user.tenant_code}</b>\n"
+            f"🔑 Maxsus kod: <b>{user.tenant_code}</b>\n"
             f"<i>(Ushbu kodni haydovchilaringizga bering, ular tizimga ulanishi uchun)</i>\n\n"
             f"Pastdagi tugmani bosing:"
         )
@@ -318,25 +321,28 @@ async def handle_owner_contact(message: Message, state: FSMContext):
     )
 
 
-# --- Flow B: Client (Driver) ---
+# --- Flow B: User (Driver / Ijarachi) ---
 
-@router.message(F.text == "👤 Men Ijarachiman (Mijoz)")
-async def handle_choose_client(message: Message, state: FSMContext):
+@router.message(F.text.in_(["👤 Men Foydalanuvchiman (Ijarachi)", "👤 Men Ijarachiman (Mijoz)"]))
+async def handle_choose_user(message: Message, state: FSMContext):
     await state.set_state(RegistrationStates.waiting_for_tenant_code)
     await message.answer(
-        "Iltimos, arendatoringiz sizga bergan maxsus kodni kiriting (masalan: AR-1234):",
+        "Arendatoringiz bergan maxsus kodni kiriting (masalan: AR-4829):",
         reply_markup=ReplyKeyboardRemove(),
     )
 
 
+handle_choose_client = handle_choose_user
+
+
 @router.message(RegistrationStates.waiting_for_tenant_code, F.text)
-async def handle_client_tenant_code(message: Message, state: FSMContext):
+async def handle_user_tenant_code(message: Message, state: FSMContext):
     code = message.text.strip().upper()
     owner = await find_owner_by_code(code)
 
     if not owner:
         await message.answer(
-            "❌ Bunday kodli arendator topilmadi. Kodni tekshirib qaytadan kiriting (masalan: AR-1234):"
+            "❌ Bunday kodli arendator topilmadi. Qaytadan kiriting (masalan: AR-4829):"
         )
         return
 
@@ -344,7 +350,7 @@ async def handle_client_tenant_code(message: Message, state: FSMContext):
         target_owner_id=owner.id,
         target_owner_name=owner.full_name or owner.username,
     )
-    await state.set_state(RegistrationStates.waiting_for_client_phone)
+    await state.set_state(RegistrationStates.waiting_for_user_phone)
     await message.answer(
         f"✅ Arendator topildi: <b>{owner.full_name or owner.username}</b>!\n\n"
         f"Endi shaxsingizni tasdiqlash uchun pastdagi tugma orqali telefon raqamingizni yuboring:",
@@ -353,8 +359,11 @@ async def handle_client_tenant_code(message: Message, state: FSMContext):
     )
 
 
-@router.message(RegistrationStates.waiting_for_client_phone, F.contact)
-async def handle_client_contact(message: Message, state: FSMContext):
+handle_client_tenant_code = handle_user_tenant_code
+
+
+@router.message(RegistrationStates.waiting_for_user_phone, F.contact)
+async def handle_user_contact(message: Message, state: FSMContext):
     if not message.from_user or not message.contact:
         return
 
@@ -370,7 +379,7 @@ async def handle_client_contact(message: Message, state: FSMContext):
         return
 
     raw_phone = message.contact.phone_number
-    user, driver_name = await match_and_register_client_driver(
+    user, driver_name = await match_and_register_user_driver(
         message.from_user, raw_phone, target_owner_id
     )
 
@@ -378,7 +387,7 @@ async def handle_client_contact(message: Message, state: FSMContext):
         await state.clear()
         await message.answer(
             "🚫 Bazada bunday foydalanuvchi yo'q! "
-            "Arendatoringiz avval sizning telefon raqamingizni o'z tizimiga kiritishi kerak.\n\n"
+            "Avval arendatoringiz sizni o'z tizimiga kiritishi kerak.\n\n"
             "Boshidan boshlash uchun /start buyrug'ini bosing.",
             reply_markup=ReplyKeyboardRemove(),
         )
@@ -400,6 +409,9 @@ async def handle_client_contact(message: Message, state: FSMContext):
     )
 
 
+handle_client_contact = handle_user_contact
+
+
 # --- Default Fallback Contact handler ---
 
 @router.message(F.contact)
@@ -407,8 +419,8 @@ async def handle_general_contact(message: Message, state: FSMContext):
     if not message.from_user or not message.contact:
         return
     current_state = await state.get_state()
-    if current_state == RegistrationStates.waiting_for_client_phone.state:
-        await handle_client_contact(message, state)
+    if current_state == RegistrationStates.waiting_for_user_phone.state:
+        await handle_user_contact(message, state)
     else:
         await handle_owner_contact(message, state)
 
@@ -428,9 +440,9 @@ async def handle_overdue_list(message: Message):
         )
         return
 
-    if user.role == User.RoleChoices.CLIENT:
+    if user.role == User.RoleChoices.USER:
         await message.answer(
-            "Siz mijoz (ijarachi) maqomidasiz. Ushbu amal faqat arendatorlar uchun mo'ljallangan.",
+            "Siz foydalanuvchi (ijarachi) maqomidasiz. Ushbu amal faqat arendatorlar uchun mo'ljallangan.",
             reply_markup=get_client_miniapp_inline_keyboard(),
         )
         return
@@ -466,9 +478,9 @@ async def handle_excel_export(message: Message):
         )
         return
 
-    if user.role == User.RoleChoices.CLIENT:
+    if user.role == User.RoleChoices.USER:
         await message.answer(
-            "Siz mijoz (ijarachi) maqomidasiz. Excel hisobot faqat arendatorlar uchun mo'ljallangan.",
+            "Siz foydalanuvchi (ijarachi) maqomidasiz. Excel hisobot faqat arendatorlar uchun mo'ljallangan.",
             reply_markup=get_client_miniapp_inline_keyboard(),
         )
         return
@@ -499,9 +511,9 @@ async def handle_subscription_info(message: Message):
         )
         return
 
-    if user.role == User.RoleChoices.CLIENT:
+    if user.role == User.RoleChoices.USER:
         await message.answer(
-            f"👤 Mijoz: <b>{user.full_name}</b>\n\n"
+            f"👤 Foydalanuvchi: <b>{user.full_name}</b>\n\n"
             "Sizning shartnomangiz va to'lov jadvalingiz bilan quyidagi tugma orqali tanishishingiz mumkin:",
             parse_mode="HTML",
             reply_markup=get_client_miniapp_inline_keyboard(),
@@ -516,8 +528,6 @@ async def handle_subscription_info(message: Message):
             "full_name": user.full_name,
             "role": user.get_role_display(),
             "tenant_code": owner.tenant_code or "AR-XXXX",
-            "is_staff": user.role == User.RoleChoices.STAFF,
-            "owner_name": owner.full_name if user.parent_owner else None,
             "plan": owner.plan.title(),
             "cars_count": owner.cars.count(),
             "cars_limit": owner.cars_limit,
@@ -531,15 +541,10 @@ async def handle_subscription_info(message: Message):
         }
 
     info = await get_user_sub_details()
-    role_note = (
-        f"\n🏢 Tashkilot rahbari: <b>{info['owner_name']}</b>"
-        if info["is_staff"] and info["owner_name"]
-        else ""
-    )
     sub_text = (
         f"📊 <b>Mening Obuna Ma'lumotlarim:</b>\n\n"
         f"👤 Foydalanuvchi: <b>{info['full_name']}</b>\n"
-        f"🛡 Rol: <b>{info['role']}</b>{role_note}\n"
+        f"🛡 Rol: <b>{info['role']}</b>\n"
         f"🔑 Maxsus kod: <b>{info['tenant_code']}</b>\n"
         f"📦 Tarif: <b>{info['plan']}</b> ({'✅ Faol' if info['is_active'] else '❌ Tugagan'})\n"
         f"🚗 Mashinalar: <b>{info['cars_count']} / {info['cars_limit']} ta</b>\n"

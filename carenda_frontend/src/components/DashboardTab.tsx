@@ -84,11 +84,6 @@ export function DashboardTab({
               <h1 className="text-xl font-bold text-slate-900 leading-tight">
                 {user?.full_name || user?.username || "Arendator"}
               </h1>
-              {user?.role === "staff" && (
-                <span className="px-2 py-0.5 text-[10px] font-bold uppercase bg-purple-100 text-purple-800 rounded-md">
-                  Menejer
-                </span>
-              )}
               {user?.role === "superadmin" && (
                 <span className="px-2 py-0.5 text-[10px] font-bold uppercase bg-rose-100 text-rose-800 rounded-md">
                   Super Admin
@@ -98,19 +93,14 @@ export function DashboardTab({
                 <button
                   type="button"
                   onClick={handleCopyTenantCode}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-mono font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-md transition"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg transition active:scale-95"
                   title="Arendator kodi (nusxalash uchun bosing)"
                 >
-                  {copiedCode ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                  {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
                   <span>{user.tenant_code}</span>
                 </button>
               )}
             </div>
-            {user?.role === "staff" && user?.parent_owner_name && (
-              <p className="text-[11px] text-slate-500 font-medium mt-0.5">
-                🏢 {user.parent_owner_name}
-              </p>
-            )}
           </div>
           <div className="flex flex-col items-end gap-1">
             <span className="px-2.5 py-0.5 text-xs font-semibold uppercase bg-blue-100 text-blue-800 rounded-full">
