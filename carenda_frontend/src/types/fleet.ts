@@ -4,7 +4,7 @@ export type UserRole = "superadmin" | "owner" | "user";
 export interface User {
   id: number;
   telegram_id: number | null;
-  username: string;
+  username: string | null;
   full_name: string;
   phone: string;
   role: UserRole;

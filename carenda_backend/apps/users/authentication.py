@@ -73,6 +73,17 @@ class TelegramWebAppAuthentication(BaseAuthentication):
                 "expires_at": timezone.now() + timedelta(days=365),
             },
         )
+        if not created:
+            updated = False
+            if user.full_name != full_name:
+                user.full_name = full_name
+                updated = True
+            if user.username != username:
+                user.username = username
+                updated = True
+            if updated:
+                user.save(update_fields=["full_name", "username"])
+
         UserSetting.objects.get_or_create(owner=user)
         return (user, None)
 
@@ -142,6 +153,11 @@ class TelegramWebAppAuthentication(BaseAuthentication):
 
         if not created:
             updated = False
+            raw_tg_username = user_data.get("username")
+            if raw_tg_username and user.username != raw_tg_username:
+                if not User.objects.filter(username=raw_tg_username).exclude(pk=user.pk).exists():
+                    user.username = raw_tg_username
+                    updated = True
             if full_name and user.full_name != full_name:
                 user.full_name = full_name
                 updated = True
@@ -152,7 +168,7 @@ class TelegramWebAppAuthentication(BaseAuthentication):
                 user.last_name = last_name
                 updated = True
             if updated:
-                user.save(update_fields=["full_name", "first_name", "last_name"])
+                user.save(update_fields=["username", "full_name", "first_name", "last_name"])
 
         UserSetting.objects.get_or_create(owner=user)
         return (user, None)

@@ -107,11 +107,46 @@ def get_client_miniapp_inline_keyboard() -> InlineKeyboardMarkup:
 
 
 @sync_to_async
-def get_existing_user(telegram_id: int) -> User | None:
+def get_existing_user(user_or_id) -> User | None:
+    if isinstance(user_or_id, int):
+        tg_id = user_or_id
+        from_user = None
+    else:
+        from_user = user_or_id
+        tg_id = getattr(from_user, "id", None) if from_user else None
+
+    if not tg_id:
+        return None
+
     try:
-        return User.objects.get(telegram_id=telegram_id)
+        user = User.objects.get(telegram_id=tg_id)
     except User.DoesNotExist:
         return None
+
+    if from_user:
+        first_name = getattr(from_user, "first_name", "") or ""
+        last_name = getattr(from_user, "last_name", "") or ""
+        full_name = f"{first_name} {last_name}".strip()
+        raw_username = getattr(from_user, "username", None)
+        fields = []
+
+        if full_name and user.full_name != full_name:
+            user.full_name = full_name
+            fields.append("full_name")
+        if first_name and user.first_name != first_name:
+            user.first_name = first_name
+            fields.append("first_name")
+        if last_name and user.last_name != last_name:
+            user.last_name = last_name
+            fields.append("last_name")
+        if raw_username and user.username != raw_username:
+            if not User.objects.filter(username=raw_username).exclude(pk=user.pk).exists():
+                user.username = raw_username
+                fields.append("username")
+        if fields:
+            user.save(update_fields=fields)
+
+    return user
 
 
 @sync_to_async
@@ -155,9 +190,21 @@ def register_owner_user(from_user, phone_number: str) -> User:
     user.phone = cleaned_phone
     user.role = User.RoleChoices.OWNER
     user.is_registered = True
-    if full_name:
+    fields = ["phone", "role", "is_registered"]
+    if full_name and user.full_name != full_name:
         user.full_name = full_name
-    user.save(update_fields=["phone", "role", "is_registered", "full_name"])
+        fields.append("full_name")
+    if first_name and user.first_name != first_name:
+        user.first_name = first_name
+        fields.append("first_name")
+    if last_name and user.last_name != last_name:
+        user.last_name = last_name
+        fields.append("last_name")
+    if from_user.username and user.username != from_user.username:
+        if not User.objects.filter(username=from_user.username).exclude(pk=user.pk).exists():
+            user.username = from_user.username
+            fields.append("username")
+    user.save(update_fields=fields)
 
     UserSetting.objects.get_or_create(owner=user)
     return user
@@ -209,9 +256,21 @@ def match_and_register_user_driver(
     user.role = User.RoleChoices.USER
     user.parent_owner_id = target_owner_id
     user.is_registered = True
-    if full_name:
+    fields = ["phone", "role", "parent_owner_id", "is_registered"]
+    if full_name and user.full_name != full_name:
         user.full_name = full_name
-    user.save(update_fields=["phone", "role", "parent_owner_id", "is_registered", "full_name"])
+        fields.append("full_name")
+    if first_name and user.first_name != first_name:
+        user.first_name = first_name
+        fields.append("first_name")
+    if last_name and user.last_name != last_name:
+        user.last_name = last_name
+        fields.append("last_name")
+    if from_user.username and user.username != from_user.username:
+        if not User.objects.filter(username=from_user.username).exclude(pk=user.pk).exists():
+            user.username = from_user.username
+            fields.append("username")
+    user.save(update_fields=fields)
 
     matched_driver.user = user
     matched_driver.save(update_fields=["user"])
@@ -232,7 +291,7 @@ async def handle_start(message: Message, state: FSMContext):
         return
 
     tg_id = message.from_user.id
-    user = await get_existing_user(tg_id)
+    user = await get_existing_user(message.from_user)
 
     # 1. Already registered user check
     if user and user.is_registered and user.phone:

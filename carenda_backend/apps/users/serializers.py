@@ -7,6 +7,7 @@ class UserMeSerializer(serializers.ModelSerializer):
     role = serializers.CharField()
     tenant_code = serializers.CharField(read_only=True)
     is_registered = serializers.BooleanField(read_only=True)
+    username = serializers.SerializerMethodField()
     parent_owner = serializers.PrimaryKeyRelatedField(read_only=True)
     parent_owner_name = serializers.SerializerMethodField()
     driver_id = serializers.SerializerMethodField()
@@ -39,6 +40,11 @@ class UserMeSerializer(serializers.ModelSerializer):
             "can_add_car",
             "default_annual_percent",
         ]
+
+    def get_username(self, obj: User) -> str | None:
+        if obj.username and not obj.username.startswith("tg_"):
+            return obj.username.lstrip("@")
+        return None
 
     def get_parent_owner_name(self, obj: User) -> str | None:
         if obj.parent_owner:

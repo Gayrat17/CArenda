@@ -231,6 +231,8 @@ class UserMeAPITests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertEqual(data["full_name"], "Baxrom Aliyev")
+        self.assertEqual(data["username"], "me_user")
+        self.assertEqual(data["telegram_id"], 888111222)
         self.assertEqual(data["role"], "owner")
         self.assertEqual(data["default_annual_percent"], "20.00")
         self.assertEqual(data["cars_count"], 0)
