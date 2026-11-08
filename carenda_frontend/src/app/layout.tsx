@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Carenda — Car Rental SaaS Platform",
-  description: "Multi-tenant Telegram Mini App for car rental owners",
+  title: "Carenda",
+  description: "Avtomobil arendasi boshqaruv tizimi",
 };
 
 export default function RootLayout({

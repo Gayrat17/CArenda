@@ -40,7 +40,7 @@ def get_miniapp_inline_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="🚀 Carenda Mini App'ni ochish",
+                    text="🚀 Carenda",
                     web_app=WebAppInfo(url=webapp_url),
                 )
             ]

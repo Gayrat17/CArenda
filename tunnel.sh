@@ -142,7 +142,7 @@ if bot_token and not bot_token.startswith('dev_'):
     payload = json.dumps({
         'menu_button': {
             'type': 'web_app',
-            'text': 'Carenda Mini App',
+            'text': 'Carenda',
             'web_app': {'url': tunnel_url}
         }
     }).encode('utf-8')
@@ -167,7 +167,7 @@ echo -e " ${BOLD}🌐 Faol HTTPS Havola:${NC}   ${CYAN}${TUNNEL_URL}${NC}"
 echo -e " ${BOLD}⚙️  Backend Sozlamasi:${NC}   carenda_backend/.env faylida WEBAPP_URL yangilandi"
 echo -e " ${BOLD}🤖 Telegram Bot:${NC}         @C_arenda_bot menyu tugmasi to'g'ridan-to'g'ri ulandi"
 echo -e " ${BOLD}📱 Sinovdan o'tkazish:${NC}   Telefoningizda Telegram orqali @C_arenda_bot ga kiring"
-echo -e "                         va pastdagi ${BOLD}\"Carenda Mini App\"${NC} tugmasini bosing!"
+echo -e "                         va pastdagi ${BOLD}\"Carenda\"${NC} tugmasini bosing!"
 echo -e "${GREEN}================================================================================${NC}"
 echo -e " ℹ️  Tunnelni to'xtatish uchun klaviaturada ${BOLD}[Ctrl + C]${NC} tugmalarini bosing."
 echo -e "${GREEN}================================================================================${NC}"
