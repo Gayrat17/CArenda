@@ -76,10 +76,16 @@ export function DashboardTab({
 
             {/* Line 1 (Primary): Profile Name + Role Badge + Tenant Code */}
             <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-xl font-extrabold text-slate-900 leading-tight">
+              <h1
+                suppressHydrationWarning
+                className="text-xl font-extrabold text-slate-900 leading-tight"
+              >
                 {identity.fullName}
               </h1>
-              <span className="px-2 py-0.5 text-[10px] font-bold uppercase bg-blue-100 text-blue-800 rounded-md">
+              <span
+                suppressHydrationWarning
+                className="px-2 py-0.5 text-[10px] font-bold uppercase bg-blue-100 text-blue-800 rounded-md"
+              >
                 {user?.role === "superadmin" ? "Super Admin" : "Arendator"}
               </span>
               {user?.tenant_code && (

@@ -132,15 +132,33 @@ export async function apiFetch<T>(
   options: ApiFetchOptions = {}
 ): Promise<T> {
   const method = (options.method || "GET").toUpperCase();
-  const cleanEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+  let cleanEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+  if (!cleanEndpoint.endsWith("/") && !cleanEndpoint.includes("?") && !cleanEndpoint.includes(".")) {
+    cleanEndpoint = `${cleanEndpoint}/`;
+  }
   const url = `${API_BASE_URL}${cleanEndpoint}`;
 
-  // Read Telegram initData or fallback to 'dev' for browser testing
+  // Read Telegram initData from WebApp or URL hash fallback
   let initData = "";
   if (typeof window !== "undefined") {
     initData = window.Telegram?.WebApp?.initData?.trim() || "";
+    if (!initData && window.location.hash.includes("tgWebAppData=")) {
+      try {
+        const hashParams = new URLSearchParams(window.location.hash.substring(1));
+        initData = hashParams.get("tgWebAppData") || "";
+      } catch {
+        // ignore
+      }
+    }
   }
-  const authHeaderValue = initData ? `tma ${initData}` : "tma dev";
+
+  // Safely encode non-ASCII characters (e.g. smart quotes, Cyrillic, Uzbek letters)
+  // so Headers.set never throws WebKit 'TypeError: Load failed' or ByteString errors
+  let safeInitData = initData;
+  if (safeInitData && /[^\x00-\x7F]/.test(safeInitData)) {
+    safeInitData = encodeURI(safeInitData);
+  }
+  const authHeaderValue = safeInitData ? `tma ${safeInitData}` : "tma dev";
 
   const cacheKey = `${authHeaderValue}:${cleanEndpoint}`;
 
@@ -177,10 +195,18 @@ export async function apiFetch<T>(
   }
   headers.set("Authorization", authHeaderValue);
 
-  const response = await fetch(url, {
-    ...fetchOptions,
-    headers,
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...fetchOptions,
+      headers,
+    });
+  } catch (netErr: unknown) {
+    const errorMsg = netErr instanceof Error ? netErr.message : String(netErr);
+    throw new Error(
+      `Tarmoq xatoligi (API ga ulanib bo'lmadi: ${errorMsg}). Backend server ishlayotganligini tekshiring.`
+    );
+  }
 
   if (!response.ok) {
     let errorBody: string;
