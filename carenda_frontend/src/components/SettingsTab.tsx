@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { User as UserIcon, Shield, Check, Save, Sparkles, AlertCircle, Copy } from "lucide-react";
+import { User as UserIcon, Shield, Check, Save, Sparkles, AlertCircle, Copy, Lock } from "lucide-react";
 import { User as UserType } from "@/types/fleet";
 import { updateMe } from "@/lib/api";
 import { formatDateTime } from "@/lib/utils";
@@ -14,7 +14,6 @@ interface SettingsTabProps {
 
 export function SettingsTab({ user, onRefreshUser }: SettingsTabProps) {
   const [fullName, setFullName] = useState(user?.full_name || "");
-  const [phone, setPhone] = useState(user?.phone || "");
   const [defaultPercent, setDefaultPercent] = useState(
     user?.default_annual_percent || "20.00"
   );
@@ -28,7 +27,6 @@ export function SettingsTab({ user, onRefreshUser }: SettingsTabProps) {
   useEffect(() => {
     if (user) {
       setFullName(user.full_name || "");
-      setPhone(user.phone || "");
       if (user.default_annual_percent) {
         setDefaultPercent(user.default_annual_percent);
       }
@@ -44,7 +42,6 @@ export function SettingsTab({ user, onRefreshUser }: SettingsTabProps) {
 
       const payload = {
         full_name: fullName.trim(),
-        phone: phone.trim(),
         default_annual_percent: parseFloat(defaultPercent) || 20,
       };
 
@@ -252,16 +249,30 @@ export function SettingsTab({ user, onRefreshUser }: SettingsTabProps) {
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">
-              Telefon raqami
-            </label>
-            <input
-              type="tel"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="+998 90 123 45 67"
-              className="w-full px-3.5 py-2.5 text-sm font-mono bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-            />
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-medium text-slate-700">
+                Telefon raqami
+              </label>
+              <span className="text-[10px] text-slate-400 font-medium flex items-center gap-1">
+                <Lock className="w-3 h-3 text-slate-400" />
+                O'zgartirib bo'lmaydi
+              </span>
+            </div>
+            <div className="relative">
+              <input
+                type="text"
+                readOnly
+                disabled
+                value={user?.phone || identity.phone || "Kiritilmagan"}
+                className="w-full px-3.5 py-2.5 text-sm font-mono bg-slate-50 border border-slate-200 rounded-xl text-slate-500 cursor-not-allowed select-none"
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-semibold text-slate-500 bg-slate-200/70 px-2 py-0.5 rounded-md">
+                Telegram orqali
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400 mt-1 leading-normal">
+              Telefon raqami Telegram profilingiz orqali tasdiqlangan va xavfsizlik maqsadida o'zgartirilmaydi.
+            </p>
           </div>
         </div>
 

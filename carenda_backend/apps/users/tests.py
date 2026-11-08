@@ -252,11 +252,13 @@ class UserMeAPITests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertEqual(data["full_name"], "Baxrom G'. Aliyev")
-        self.assertEqual(data["phone"], "+998909998877")
+        # Phone must remain unchanged (read-only for security)
+        self.assertEqual(data["phone"], "+998901110022")
         self.assertEqual(data["default_annual_percent"], "25.00")
 
         self.owner.refresh_from_db()
         self.assertEqual(self.owner.full_name, "Baxrom G'. Aliyev")
+        self.assertEqual(self.owner.phone, "+998901110022")
         self.assertEqual(self.owner.settings.default_annual_percent, Decimal("25.00"))
 
     def test_patch_me_user_driver_forbidden_from_updating_annual_percent(self):
@@ -276,7 +278,7 @@ class UserMeAPITests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertIn("error", response.json())
 
-        # But user driver CAN update their own name and phone
+        # But user driver CAN update their own name (phone remains protected)
         response_ok = self.client.patch(
             "/api/v1/me/",
             {"full_name": "Dilshod Haydovchi", "phone": "+998931112233"},
@@ -285,4 +287,4 @@ class UserMeAPITests(TestCase):
         self.assertEqual(response_ok.status_code, status.HTTP_200_OK)
         driver_user.refresh_from_db()
         self.assertEqual(driver_user.full_name, "Dilshod Haydovchi")
-        self.assertEqual(driver_user.phone, "+998931112233")
+        self.assertEqual(driver_user.phone, "")

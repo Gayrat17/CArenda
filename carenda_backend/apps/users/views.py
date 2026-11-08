@@ -28,10 +28,6 @@ class MeAPIView(APIView):
             user.full_name = validated_data["full_name"]
             user_fields_to_update.append("full_name")
 
-        if "phone" in validated_data:
-            user.phone = validated_data["phone"]
-            user_fields_to_update.append("phone")
-
         if user_fields_to_update:
             user.save(update_fields=user_fields_to_update)
 

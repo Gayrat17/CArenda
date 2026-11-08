@@ -82,7 +82,6 @@ class UserMeSerializer(serializers.ModelSerializer):
 
 class UserMeUpdateSerializer(serializers.Serializer):
     full_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
-    phone = serializers.CharField(max_length=25, required=False, allow_blank=True)
     default_annual_percent = serializers.DecimalField(
         max_digits=5, decimal_places=2, required=False, min_value=0
     )
