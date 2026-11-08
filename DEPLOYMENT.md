@@ -48,7 +48,7 @@ newgrp docker
 
 ### 1) Repozitoriyni klonlash:
 ```bash
-git clone https://github.com/Gayrat17/CArenda.git /opt/carenda
+git clone https://github.com/Gayrat17/Carenda.git /opt/carenda
 cd /opt/carenda
 ```
 
