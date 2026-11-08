@@ -48,16 +48,21 @@ class UserModelTests(TestCase):
             full_name="Alisher Navoiy",
             phone="+998901234567",
             telegram_id=123456789,
+            role=User.RoleChoices.OWNER,
             plan=User.Plan.TRIAL,
             cars_limit=2,
             expires_at=timezone.now() + timedelta(days=14),
         )
 
     def test_user_creation_and_str(self):
-        self.assertEqual(str(self.user), "Alisher Navoiy")
+        self.assertIn("Alisher Navoiy", str(self.user))
         self.assertEqual(self.user.telegram_id, 123456789)
+        self.assertEqual(self.user.role, User.RoleChoices.OWNER)
         self.assertEqual(self.user.plan, "trial")
         self.assertEqual(self.user.cars_limit, 2)
+        self.assertTrue(self.user.is_owner)
+        self.assertFalse(self.user.is_staff_member)
+        self.assertFalse(self.user.is_superadmin)
 
     def test_subscription_active_property(self):
         self.assertTrue(self.user.is_subscription_active)
@@ -95,6 +100,19 @@ class UserModelTests(TestCase):
         self.user.expires_at = timezone.now() - timedelta(days=1)
         self.assertFalse(self.user.can_add_car)
 
+    def test_staff_role_and_parent_owner_tenancy(self):
+        staff = User.objects.create_user(
+            username="manager1",
+            full_name="Temur Xodim",
+            role=User.RoleChoices.STAFF,
+            parent_owner=self.user,
+        )
+        self.assertTrue(staff.is_staff_member)
+        self.assertEqual(staff.tenant_owner, self.user)
+        # Staff inherits subscription check and car limit from parent_owner
+        self.assertTrue(staff.is_subscription_active)
+        self.assertTrue(staff.can_add_car)
+
 
 class UserSettingModelTests(TestCase):
     def setUp(self):
@@ -118,7 +136,7 @@ class TelegramAuthenticationTests(TestCase):
     def setUp(self):
         self.client = APIClient()
 
-    def test_real_telegram_hmac_auth_success(self):
+    def test_real_telegram_hmac_auth_auto_registration(self):
         init_data = make_tg_init_data(
             {"id": 777888999, "first_name": "Sardor", "username": "sardor_tg"}
         )
@@ -129,16 +147,43 @@ class TelegramAuthenticationTests(TestCase):
         data = response.json()
         self.assertEqual(data["telegram_id"], 777888999)
         self.assertEqual(data["full_name"], "Sardor")
+        self.assertEqual(data["role"], "owner")
+        self.assertEqual(data["plan"], "trial")
 
         # Verify User and UserSetting created in DB
         user = User.objects.get(telegram_id=777888999)
+        self.assertEqual(user.role, User.RoleChoices.OWNER)
         self.assertTrue(UserSetting.objects.filter(owner=user).exists())
+
+    def test_real_telegram_hmac_auth_preserves_existing_staff_role(self):
+        owner = User.objects.create_user(
+            username="big_arendator",
+            role=User.RoleChoices.OWNER,
+        )
+        # Existing staff member registered in advance
+        User.objects.create_user(
+            username="staff_nodir",
+            telegram_id=666777888,
+            full_name="Nodir Manager",
+            role=User.RoleChoices.STAFF,
+            parent_owner=owner,
+        )
+
+        init_data = make_tg_init_data(
+            {"id": 666777888, "first_name": "Nodir", "username": "staff_nodir"}
+        )
+        response = self.client.get(
+            "/api/v1/me/", HTTP_AUTHORIZATION=f"tma {init_data}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["role"], "staff")
+        self.assertEqual(data["parent_owner"], owner.id)
 
     def test_real_telegram_hmac_auth_tampered_signature_fails(self):
         init_data = make_tg_init_data(
             {"id": 555666777, "first_name": "Fake"}
         )
-        # Tamper with the hash
         tampered = init_data.replace("hash=", "hash=deadbeef")
         response = self.client.get(
             "/api/v1/me/", HTTP_AUTHORIZATION=f"tma {tampered}"
@@ -154,35 +199,39 @@ class TelegramAuthenticationTests(TestCase):
         data = response.json()
         self.assertEqual(data["telegram_id"], 999999999)
         self.assertEqual(data["username"], "demo_arendator")
+        self.assertEqual(data["role"], "owner")
         self.assertEqual(data["cars_limit"], 10)
 
 
 class UserMeAPITests(TestCase):
     def setUp(self):
         self.client = APIClient()
-        self.user = User.objects.create_user(
+        self.owner = User.objects.create_user(
             username="me_user",
             full_name="Baxrom Aliyev",
             phone="+998901110022",
             telegram_id=888111222,
+            role=User.RoleChoices.OWNER,
             cars_limit=5,
             expires_at=timezone.now() + timedelta(days=30),
         )
         UserSetting.objects.create(
-            owner=self.user,
+            owner=self.owner,
             default_annual_percent=Decimal("20.00"),
         )
-        self.client.force_authenticate(user=self.user)
 
     def test_get_me(self):
+        self.client.force_authenticate(user=self.owner)
         response = self.client.get("/api/v1/me/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertEqual(data["full_name"], "Baxrom Aliyev")
+        self.assertEqual(data["role"], "owner")
         self.assertEqual(data["default_annual_percent"], "20.00")
         self.assertEqual(data["cars_count"], 0)
 
-    def test_patch_me_updates_profile_and_annual_percent(self):
+    def test_patch_me_owner_can_update_annual_percent(self):
+        self.client.force_authenticate(user=self.owner)
         response = self.client.patch(
             "/api/v1/me/",
             {
@@ -198,6 +247,34 @@ class UserMeAPITests(TestCase):
         self.assertEqual(data["phone"], "+998909998877")
         self.assertEqual(data["default_annual_percent"], "25.00")
 
-        self.user.refresh_from_db()
-        self.assertEqual(self.user.full_name, "Baxrom G'. Aliyev")
-        self.assertEqual(self.user.settings.default_annual_percent, Decimal("25.00"))
+        self.owner.refresh_from_db()
+        self.assertEqual(self.owner.full_name, "Baxrom G'. Aliyev")
+        self.assertEqual(self.owner.settings.default_annual_percent, Decimal("25.00"))
+
+    def test_patch_me_staff_forbidden_from_updating_annual_percent(self):
+        staff = User.objects.create_user(
+            username="staff_dilshod",
+            role=User.RoleChoices.STAFF,
+            parent_owner=self.owner,
+        )
+        self.client.force_authenticate(user=staff)
+
+        # Attempt to modify default_annual_percent as staff
+        response = self.client.patch(
+            "/api/v1/me/",
+            {"default_annual_percent": "35.00"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("error", response.json())
+
+        # But staff CAN update their own name and phone
+        response_ok = self.client.patch(
+            "/api/v1/me/",
+            {"full_name": "Dilshod Manager", "phone": "+998931112233"},
+            format="json",
+        )
+        self.assertEqual(response_ok.status_code, status.HTTP_200_OK)
+        staff.refresh_from_db()
+        self.assertEqual(staff.full_name, "Dilshod Manager")
+        self.assertEqual(staff.phone, "+998931112233")

@@ -15,7 +15,8 @@ from apps.users.models import User, UserSetting
 class TelegramWebAppAuthentication(BaseAuthentication):
     """
     Authenticates requests via Telegram WebApp initData (HMAC-SHA256 signature).
-    Supports a seamless local dev fallback when settings.DEBUG is True.
+    Supports seamless auto-registration on first login (role: owner, 14-day trial)
+    and a local dev fallback when settings.DEBUG is True.
     """
 
     def authenticate(self, request):
@@ -65,6 +66,8 @@ class TelegramWebAppAuthentication(BaseAuthentication):
             defaults={
                 "username": username,
                 "full_name": full_name,
+                "role": User.RoleChoices.OWNER,
+                "plan": User.Plan.TRIAL,
                 "cars_limit": 10,
                 "expires_at": timezone.now() + timedelta(days=365),
             },
@@ -121,6 +124,7 @@ class TelegramWebAppAuthentication(BaseAuthentication):
         tg_username = user_data.get("username") or f"tg_{telegram_id}"
         full_name = f"{first_name} {last_name}".strip() or tg_username
 
+        # Auto-registration on first login (role: owner, 14-day trial)
         user, created = User.objects.get_or_create(
             telegram_id=telegram_id,
             defaults={
@@ -128,6 +132,10 @@ class TelegramWebAppAuthentication(BaseAuthentication):
                 "full_name": full_name,
                 "first_name": first_name,
                 "last_name": last_name,
+                "role": User.RoleChoices.OWNER,
+                "plan": User.Plan.TRIAL,
+                "cars_limit": 2,
+                "expires_at": timezone.now() + timedelta(days=14),
             },
         )
 

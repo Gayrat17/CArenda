@@ -66,9 +66,26 @@ export function DashboardTab({
             <span className="text-[11px] font-semibold text-blue-600 uppercase tracking-wider">
               Carenda Platformasi
             </span>
-            <h1 className="text-xl font-bold text-slate-900 leading-tight">
-              {user?.full_name || user?.username || "Arendator"}
-            </h1>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <h1 className="text-xl font-bold text-slate-900 leading-tight">
+                {user?.full_name || user?.username || "Arendator"}
+              </h1>
+              {user?.role === "staff" && (
+                <span className="px-2 py-0.5 text-[10px] font-bold uppercase bg-purple-100 text-purple-800 rounded-md">
+                  Menejer
+                </span>
+              )}
+              {user?.role === "superadmin" && (
+                <span className="px-2 py-0.5 text-[10px] font-bold uppercase bg-rose-100 text-rose-800 rounded-md">
+                  Super Admin
+                </span>
+              )}
+            </div>
+            {user?.role === "staff" && user?.parent_owner_name && (
+              <p className="text-[11px] text-slate-500 font-medium mt-0.5">
+                🏢 {user.parent_owner_name}
+              </p>
+            )}
           </div>
           <div className="flex flex-col items-end gap-1">
             <span className="px-2.5 py-0.5 text-xs font-semibold uppercase bg-blue-100 text-blue-800 rounded-full">

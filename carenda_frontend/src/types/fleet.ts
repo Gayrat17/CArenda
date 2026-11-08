@@ -1,4 +1,5 @@
 export type UserPlan = "trial" | "basic" | "pro";
+export type UserRole = "superadmin" | "owner" | "staff";
 
 export interface User {
   id: number;
@@ -6,6 +7,9 @@ export interface User {
   username: string;
   full_name: string;
   phone: string;
+  role: UserRole;
+  parent_owner?: number | null;
+  parent_owner_name?: string | null;
   plan: UserPlan;
   cars_limit: number;
   cars_count: number;

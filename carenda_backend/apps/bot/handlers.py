@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from aiogram import F, Router
 from aiogram.filters import CommandStart
 from aiogram.types import (
@@ -11,6 +13,7 @@ from aiogram.types import (
 )
 from asgiref.sync import sync_to_async
 from django.conf import settings
+from django.utils import timezone
 
 from apps.bot.services import build_overdue_summary_text, get_webapp_url
 from apps.fleet.excel import generate_tenant_excel_report
@@ -63,6 +66,10 @@ def get_or_create_bot_user(from_user):
             "full_name": full_name,
             "first_name": first_name,
             "last_name": last_name,
+            "role": User.RoleChoices.OWNER,
+            "plan": User.Plan.TRIAL,
+            "cars_limit": 2,
+            "expires_at": timezone.now() + timedelta(days=14),
         },
     )
 
@@ -90,9 +97,7 @@ async def handle_start(message: Message):
 
     welcome_text = (
         f"Assalomu alaykum, <b>{user.full_name}</b>!\n\n"
-        f"<b>Carenda</b> — avtomobil ijarasi (arenda) boshqaruvi platformasiga xush kelibsiz.\n\n"
-        f"📱 Avtoparkingizni boshqarish, yangi shartnomalar tuzish va to'lovlarni kiritish uchun "
-        f"quyidagi tugma orqali <b>Telegram Mini App</b>'ni oching:"
+        f"Carenda boshqaruv tizimiga xush kelibsiz. Pastdagi tugmani bosing:"
     )
 
     await message.answer(
@@ -112,7 +117,8 @@ async def handle_overdue_list(message: Message):
         return
 
     user = await get_or_create_bot_user(message.from_user)
-    summary_text = await sync_to_async(build_overdue_summary_text)(user)
+    tenant_owner = await sync_to_async(lambda: user.tenant_owner)()
+    summary_text = await sync_to_async(build_overdue_summary_text)(tenant_owner)
 
     if not summary_text:
         await message.answer(
@@ -135,9 +141,10 @@ async def handle_excel_export(message: Message):
         return
 
     user = await get_or_create_bot_user(message.from_user)
+    tenant_owner = await sync_to_async(lambda: user.tenant_owner)()
     await message.answer("⏳ Hisobot tayyorlanmoqda, iltimos kuting...")
 
-    excel_bytes = await sync_to_async(generate_tenant_excel_report)(user)
+    excel_bytes = await sync_to_async(generate_tenant_excel_report)(tenant_owner)
     document = BufferedInputFile(excel_bytes, filename="carenda_hisobot.xlsx")
 
     await message.answer_document(
@@ -155,23 +162,35 @@ async def handle_subscription_info(message: Message):
     @sync_to_async
     def get_user_sub_details():
         user = User.objects.get(telegram_id=message.from_user.id)
-        setting, _ = UserSetting.objects.get_or_create(owner=user)
+        owner = user.tenant_owner
+        setting, _ = UserSetting.objects.get_or_create(owner=owner)
         return {
             "full_name": user.full_name,
-            "plan": user.plan.title(),
-            "cars_count": user.cars.count(),
-            "cars_limit": user.cars_limit,
+            "role": user.get_role_display(),
+            "is_staff": user.role == User.RoleChoices.STAFF,
+            "owner_name": owner.full_name if user.parent_owner else None,
+            "plan": owner.plan.title(),
+            "cars_count": owner.cars.count(),
+            "cars_limit": owner.cars_limit,
             "percent": setting.default_annual_percent,
-            "expires_at": user.expires_at.strftime("%d.%m.%Y %H:%M")
-            if user.expires_at
-            else "Cheksiz",
-            "is_active": user.is_subscription_active,
+            "expires_at": (
+                owner.expires_at.strftime("%d.%m.%Y %H:%M")
+                if owner.expires_at
+                else "Cheksiz"
+            ),
+            "is_active": owner.is_subscription_active,
         }
 
     info = await get_user_sub_details()
+    role_note = (
+        f"\n🏢 Tashkilot rahbari: <b>{info['owner_name']}</b>"
+        if info["is_staff"] and info["owner_name"]
+        else ""
+    )
     sub_text = (
         f"📊 <b>Mening Obuna Ma'lumotlarim:</b>\n\n"
-        f"👤 Arendator: <b>{info['full_name']}</b>\n"
+        f"👤 Foydalanuvchi: <b>{info['full_name']}</b>\n"
+        f"🛡 Rol: <b>{info['role']}</b>{role_note}\n"
         f"📦 Tarif: <b>{info['plan']}</b> ({'✅ Faol' if info['is_active'] else '❌ Tugagan'})\n"
         f"🚗 Mashinalar: <b>{info['cars_count']} / {info['cars_limit']} ta</b>\n"
         f"📈 Standart yillik foiz: <b>{info['percent']}%</b>\n"

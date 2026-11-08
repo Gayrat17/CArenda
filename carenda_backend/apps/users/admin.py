@@ -10,6 +10,8 @@ class UserAdmin(BaseUserAdmin):
         "id",
         "username",
         "full_name",
+        "role",
+        "parent_owner",
         "phone",
         "telegram_id",
         "plan",
@@ -18,15 +20,29 @@ class UserAdmin(BaseUserAdmin):
         "is_subscription_active",
         "is_active",
     )
-    list_filter = ("plan", "is_active", "is_staff", "is_superuser")
+    list_filter = ("role", "plan", "is_active", "is_staff", "is_superuser")
     search_fields = ("username", "full_name", "phone", "telegram_id", "email")
     ordering = ("-id",)
+    raw_id_fields = ("parent_owner",)
 
     fieldsets = (
         (None, {"fields": ("username", "password")}),
         (
             "Personal info",
-            {"fields": ("full_name", "first_name", "last_name", "email", "phone", "telegram_id")},
+            {
+                "fields": (
+                    "full_name",
+                    "first_name",
+                    "last_name",
+                    "email",
+                    "phone",
+                    "telegram_id",
+                )
+            },
+        ),
+        (
+            "Carenda Role & Multi-Tenancy",
+            {"fields": ("role", "parent_owner")},
         ),
         (
             "Carenda SaaS Subscription",

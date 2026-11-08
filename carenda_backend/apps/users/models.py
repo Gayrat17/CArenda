@@ -16,6 +16,26 @@ class User(AbstractUser):
         BASIC = "basic", "Basic"
         PRO = "pro", "Pro"
 
+    class RoleChoices(models.TextChoices):
+        SUPERADMIN = "superadmin", "Super Admin"
+        OWNER = "owner", "Arendator"
+        STAFF = "staff", "Menejer/Xodim"
+
+    role = models.CharField(
+        max_length=20,
+        choices=RoleChoices.choices,
+        default=RoleChoices.OWNER,
+        verbose_name="Foydalanuvchi roli",
+    )
+    parent_owner = models.ForeignKey(
+        "self",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="staff_members",
+        help_text="If role is staff, points to the Arendator owner",
+        verbose_name="Arendator rahbari",
+    )
     telegram_id = models.BigIntegerField(
         unique=True,
         null=True,
@@ -53,22 +73,49 @@ class User(AbstractUser):
         verbose_name_plural = "Users"
 
     @property
+    def tenant_owner(self):
+        """
+        Returns the tenant owner for row-level multi-tenancy.
+        If user is a staff member with parent_owner, returns parent_owner.
+        Otherwise, returns self.
+        """
+        if self.role == self.RoleChoices.STAFF and self.parent_owner:
+            return self.parent_owner
+        return self
+
+    @property
+    def is_superadmin(self) -> bool:
+        return bool(self.role == self.RoleChoices.SUPERADMIN or self.is_superuser)
+
+    @property
+    def is_owner(self) -> bool:
+        return bool(self.role == self.RoleChoices.OWNER)
+
+    @property
+    def is_staff_member(self) -> bool:
+        return bool(self.role == self.RoleChoices.STAFF)
+
+    @property
     def is_subscription_active(self) -> bool:
+        owner = self.tenant_owner
         return bool(
-            self.is_active
-            and self.expires_at
-            and self.expires_at > timezone.now()
+            owner.is_active
+            and owner.expires_at
+            and owner.expires_at > timezone.now()
         )
 
     @property
     def can_add_car(self) -> bool:
+        owner = self.tenant_owner
         return bool(
-            self.is_subscription_active
-            and (self.cars.count() < self.cars_limit)
+            owner.is_subscription_active
+            and (owner.cars.count() < owner.cars_limit)
         )
 
     def __str__(self):
-        return self.full_name or self.username or str(self.telegram_id or self.pk)
+        role_label = self.get_role_display() if hasattr(self, "get_role_display") else self.role
+        name = self.full_name or self.username or str(self.telegram_id or self.pk)
+        return f"{name} ({role_label})"
 
 
 class UserSetting(models.Model):

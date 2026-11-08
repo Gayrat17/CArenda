@@ -3,7 +3,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.users.models import UserSetting
+from apps.users.models import User, UserSetting
 from apps.users.serializers import UserMeSerializer, UserMeUpdateSerializer
 
 
@@ -35,7 +35,13 @@ class MeAPIView(APIView):
             user.save(update_fields=user_fields_to_update)
 
         if "default_annual_percent" in validated_data:
-            setting, _ = UserSetting.objects.get_or_create(owner=user)
+            if user.role == User.RoleChoices.STAFF:
+                return Response(
+                    {"error": "Faqat arendator rahbari (owner) standart foiz stavkasini o'zgartirishi mumkin."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            target_owner = user.tenant_owner
+            setting, _ = UserSetting.objects.get_or_create(owner=target_owner)
             setting.default_annual_percent = validated_data["default_annual_percent"]
             setting.save(update_fields=["default_annual_percent"])
 
