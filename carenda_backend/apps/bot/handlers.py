@@ -12,7 +12,7 @@ from aiogram.types import (
 from asgiref.sync import sync_to_async
 from django.conf import settings
 
-from apps.bot.services import build_overdue_summary_text
+from apps.bot.services import build_overdue_summary_text, get_webapp_url
 from apps.fleet.excel import generate_tenant_excel_report
 from apps.users.models import User, UserSetting
 
@@ -35,7 +35,7 @@ def get_main_reply_keyboard() -> ReplyKeyboardMarkup:
 
 
 def get_miniapp_inline_keyboard() -> InlineKeyboardMarkup:
-    webapp_url = getattr(settings, "WEBAPP_URL", "http://localhost:3000")
+    webapp_url = get_webapp_url()
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [

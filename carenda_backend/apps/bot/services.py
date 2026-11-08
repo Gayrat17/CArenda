@@ -14,6 +14,28 @@ from apps.users.models import User
 logger = logging.getLogger(__name__)
 
 
+def get_webapp_url() -> str:
+    """
+    Returns current WebApp URL.
+    Checks .env directly for zero-restart live tunnel updates,
+    falling back to settings.WEBAPP_URL.
+    """
+    try:
+        from pathlib import Path
+        import re
+
+        env_file = settings.BASE_DIR / ".env"
+        if env_file.exists():
+            content = env_file.read_text(encoding="utf-8")
+            m = re.search(r"^WEBAPP_URL=['\"]?([^'\"\s]+)['\"]?", content, re.MULTILINE)
+            if m and m.group(1).startswith("https://"):
+                return m.group(1).strip()
+    except Exception:
+        pass
+    return getattr(settings, "WEBAPP_URL", "http://localhost:3000")
+
+
+
 def build_overdue_summary_text(owner: User) -> str | None:
     """
     Builds a structured Uzbek alert message listing overdue or due-today payments for the tenant.
@@ -82,7 +104,7 @@ async def send_daily_overdue_notifications(bot: Bot) -> int:
     alerts = await get_active_users_with_alerts()
     notified_count = 0
 
-    webapp_url = getattr(settings, "WEBAPP_URL", "http://localhost:3000")
+    webapp_url = get_webapp_url()
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [
