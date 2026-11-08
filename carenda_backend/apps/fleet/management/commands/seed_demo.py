@@ -30,7 +30,7 @@ class Command(BaseCommand):
                 "username": "demo_arendator",
                 "full_name": "Demo Arendator",
                 "phone": "+998901234567",
-                "role": User.RoleChoices.OWNER,
+                "role": User.RoleChoices.ARENDATOR,
                 "is_registered": True,
                 "tenant_code": "AR-7777",
                 "cars_limit": 50,
@@ -42,7 +42,7 @@ class Command(BaseCommand):
             demo_owner.username = "demo_arendator"
             demo_owner.full_name = "Demo Arendator"
             demo_owner.phone = "+998901234567"
-            demo_owner.role = User.RoleChoices.OWNER
+            demo_owner.role = User.RoleChoices.ARENDATOR
             demo_owner.is_registered = True
             demo_owner.tenant_code = "AR-7777"
             demo_owner.cars_limit = 50

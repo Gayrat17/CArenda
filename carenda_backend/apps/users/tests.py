@@ -48,7 +48,7 @@ class UserModelTests(TestCase):
             full_name="Alisher Navoiy",
             phone="+998901234567",
             telegram_id=123456789,
-            role=User.RoleChoices.OWNER,
+            role=User.RoleChoices.ARENDATOR,
             plan=User.Plan.TRIAL,
             cars_limit=2,
             expires_at=timezone.now() + timedelta(days=14),
@@ -57,10 +57,11 @@ class UserModelTests(TestCase):
     def test_user_creation_and_str(self):
         self.assertIn("Alisher Navoiy", str(self.user))
         self.assertEqual(self.user.telegram_id, 123456789)
-        self.assertEqual(self.user.role, User.RoleChoices.OWNER)
+        self.assertEqual(self.user.role, User.RoleChoices.ARENDATOR)
         self.assertEqual(self.user.plan, "trial")
         self.assertEqual(self.user.cars_limit, 2)
         self.assertTrue(self.user.is_owner)
+        self.assertTrue(self.user.is_arendator)
         self.assertFalse(self.user.is_user)
         self.assertFalse(self.user.is_superadmin)
 
@@ -153,18 +154,18 @@ class TelegramAuthenticationTests(TestCase):
         data = response.json()
         self.assertEqual(data["telegram_id"], 777888999)
         self.assertEqual(data["full_name"], "Sardor")
-        self.assertEqual(data["role"], "owner")
+        self.assertEqual(data["role"], "arendator")
         self.assertEqual(data["plan"], "trial")
 
         # Verify User and UserSetting created in DB
         user = User.objects.get(telegram_id=777888999)
-        self.assertEqual(user.role, User.RoleChoices.OWNER)
+        self.assertEqual(user.role, User.RoleChoices.ARENDATOR)
         self.assertTrue(UserSetting.objects.filter(owner=user).exists())
 
     def test_real_telegram_hmac_auth_preserves_existing_user_role(self):
         owner = User.objects.create_user(
             username="big_arendator",
-            role=User.RoleChoices.OWNER,
+            role=User.RoleChoices.ARENDATOR,
         )
         User.objects.create_user(
             username="user_nodir",
@@ -204,7 +205,7 @@ class TelegramAuthenticationTests(TestCase):
         data = response.json()
         self.assertEqual(data["telegram_id"], 999999999)
         self.assertEqual(data["username"], "demo_arendator")
-        self.assertEqual(data["role"], "owner")
+        self.assertEqual(data["role"], "arendator")
         self.assertEqual(data["cars_limit"], 10)
 
 
@@ -216,7 +217,7 @@ class UserMeAPITests(TestCase):
             full_name="Baxrom Aliyev",
             phone="+998901110022",
             telegram_id=888111222,
-            role=User.RoleChoices.OWNER,
+            role=User.RoleChoices.ARENDATOR,
             cars_limit=5,
             expires_at=timezone.now() + timedelta(days=30),
         )
@@ -233,7 +234,7 @@ class UserMeAPITests(TestCase):
         self.assertEqual(data["full_name"], "Baxrom Aliyev")
         self.assertEqual(data["username"], "me_user")
         self.assertEqual(data["telegram_id"], 888111222)
-        self.assertEqual(data["role"], "owner")
+        self.assertEqual(data["role"], "arendator")
         self.assertEqual(data["default_annual_percent"], "20.00")
         self.assertEqual(data["cars_count"], 0)
 

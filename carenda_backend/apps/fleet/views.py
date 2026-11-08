@@ -46,7 +46,7 @@ class IsArendator(BasePermission):
         return bool(
             request.user
             and request.user.is_authenticated
-            and request.user.role in (User.RoleChoices.OWNER, User.RoleChoices.SUPERADMIN)
+            and request.user.role in (User.RoleChoices.ARENDATOR, User.RoleChoices.SUPERADMIN)
         )
 
 
@@ -267,7 +267,7 @@ class BootstrapAPIView(APIView):
 
         me_data = UserMeSerializer(request.user).data
 
-        if request.user.role in (User.RoleChoices.OWNER, User.RoleChoices.SUPERADMIN):
+        if request.user.role in (User.RoleChoices.ARENDATOR, User.RoleChoices.SUPERADMIN):
             owner = request.user.tenant_owner
             dashboard_data = get_dashboard_data_for_owner(owner, today)
             cars_data = get_cars_data_for_owner(owner)

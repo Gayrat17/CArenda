@@ -24,7 +24,7 @@ class Command(BaseCommand):
         with transaction.atomic():
             if keep_super:
                 users_qs = User.objects.filter(is_superuser=False)
-                owners_ids = users_qs.filter(role=User.RoleChoices.OWNER).values_list("id", flat=True)
+                owners_ids = users_qs.filter(role=User.RoleChoices.ARENDATOR).values_list("id", flat=True)
 
                 payments_count = Payment.objects.filter(contract__owner_id__in=owners_ids).delete()[0]
                 contracts_count = Contract.objects.filter(owner_id__in=owners_ids).delete()[0]

@@ -29,13 +29,15 @@ class User(AbstractUser):
 
     class RoleChoices(models.TextChoices):
         SUPERADMIN = "superadmin", "Super Admin"
-        OWNER = "owner", "Arendator"
+        ARENDATOR = "arendator", "Arendator"
         USER = "user", "Foydalanuvchi (Ijarachi)"
+
+    RoleChoices.OWNER = RoleChoices.ARENDATOR
 
     role = models.CharField(
         max_length=20,
         choices=RoleChoices.choices,
-        default=RoleChoices.OWNER,
+        default=RoleChoices.ARENDATOR,
         verbose_name="Foydalanuvchi roli",
     )
     parent_owner = models.ForeignKey(
@@ -102,15 +104,15 @@ class User(AbstractUser):
         ]
 
     def save(self, *args, **kwargs):
-        # Auto-generate unique tenant_code ONLY for owner if not set
-        if self.role == self.RoleChoices.OWNER and not self.tenant_code:
+        # Auto-generate unique tenant_code ONLY for arendator if not set
+        if self.role == self.RoleChoices.ARENDATOR and not self.tenant_code:
             while True:
                 suffix = "".join(random.choices(string.ascii_uppercase + string.digits, k=4))
                 code = f"AR-{suffix}"
                 if not User.objects.filter(tenant_code=code).exclude(pk=self.pk).exists():
                     self.tenant_code = code
                     break
-        elif self.role != self.RoleChoices.OWNER and self.tenant_code:
+        elif self.role != self.RoleChoices.ARENDATOR and self.tenant_code:
             self.tenant_code = None
         super().save(*args, **kwargs)
 
@@ -130,8 +132,12 @@ class User(AbstractUser):
         return bool(self.role == self.RoleChoices.SUPERADMIN or self.is_superuser)
 
     @property
+    def is_arendator(self) -> bool:
+        return bool(self.role == self.RoleChoices.ARENDATOR)
+
+    @property
     def is_owner(self) -> bool:
-        return bool(self.role == self.RoleChoices.OWNER)
+        return self.is_arendator
 
     @property
     def is_user(self) -> bool:

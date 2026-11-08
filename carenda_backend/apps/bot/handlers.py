@@ -154,7 +154,7 @@ def find_owner_by_code(code: str) -> User | None:
     if not code:
         return None
     return User.objects.filter(
-        role=User.RoleChoices.OWNER,
+        role=User.RoleChoices.ARENDATOR,
         tenant_code__iexact=code.strip(),
     ).first()
 
@@ -179,7 +179,7 @@ def register_owner_user(from_user, phone_number: str) -> User:
             "first_name": first_name,
             "last_name": last_name,
             "phone": cleaned_phone,
-            "role": User.RoleChoices.OWNER,
+            "role": User.RoleChoices.ARENDATOR,
             "plan": User.Plan.TRIAL,
             "cars_limit": 2,
             "is_registered": True,
@@ -188,7 +188,7 @@ def register_owner_user(from_user, phone_number: str) -> User:
     )
 
     user.phone = cleaned_phone
-    user.role = User.RoleChoices.OWNER
+    user.role = User.RoleChoices.ARENDATOR
     user.is_registered = True
     fields = ["phone", "role", "is_registered"]
     if full_name and user.full_name != full_name:

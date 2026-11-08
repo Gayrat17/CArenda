@@ -1,5 +1,5 @@
 export type UserPlan = "trial" | "basic" | "pro";
-export type UserRole = "superadmin" | "owner" | "user";
+export type UserRole = "superadmin" | "arendator" | "owner" | "user";
 
 export interface User {
   id: number;

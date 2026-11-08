@@ -72,7 +72,7 @@ class TelegramWebAppAuthentication(BaseAuthentication):
             defaults={
                 "username": username,
                 "full_name": full_name,
-                "role": User.RoleChoices.OWNER,
+                "role": User.RoleChoices.ARENDATOR,
                 "plan": User.Plan.TRIAL,
                 "cars_limit": 10,
                 "is_registered": True,
@@ -158,7 +158,7 @@ class TelegramWebAppAuthentication(BaseAuthentication):
                 "full_name": full_name,
                 "first_name": first_name,
                 "last_name": last_name,
-                "role": User.RoleChoices.OWNER,
+                "role": User.RoleChoices.ARENDATOR,
                 "plan": User.Plan.TRIAL,
                 "cars_limit": 2,
                 "expires_at": timezone.now() + timedelta(days=14),

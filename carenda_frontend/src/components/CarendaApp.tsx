@@ -45,7 +45,7 @@ export function CarendaApp() {
           username: tgUser.username || null,
           full_name: fullName,
           phone: "",
-          role: "owner",
+          role: "arendator",
           plan: "trial",
           cars_limit: 2,
           cars_count: 0,

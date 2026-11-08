@@ -82,7 +82,7 @@ class BotDualOnboardingTests(TestCase):
             telegram_id=111222333,
             full_name="Jamshid Karimov",
             phone="+998901234567",
-            role=User.RoleChoices.OWNER,
+            role=User.RoleChoices.ARENDATOR,
             tenant_code="AR-TEST",
             is_registered=True,
         )
@@ -104,7 +104,7 @@ class BotDualOnboardingTests(TestCase):
         owner = await User.objects.acreate(
             username="owner_user",
             full_name="Owner Bek",
-            role=User.RoleChoices.OWNER,
+            role=User.RoleChoices.ARENDATOR,
         )
         await User.objects.acreate(
             username="driver_user",
@@ -154,7 +154,7 @@ class BotDualOnboardingTests(TestCase):
         # Check DB
         user = await User.objects.aget(telegram_id=111222333)
         self.assertEqual(user.phone, "+998901234567")
-        self.assertEqual(user.role, User.RoleChoices.OWNER)
+        self.assertEqual(user.role, User.RoleChoices.ARENDATOR)
         self.assertTrue(user.is_registered)
         self.assertIsNotNone(user.tenant_code)
         self.assertTrue(user.tenant_code.startswith("AR-"))
@@ -172,7 +172,7 @@ class BotDualOnboardingTests(TestCase):
             username="owner_salim",
             full_name="Salim Arendator",
             phone="+998901112233",
-            role=User.RoleChoices.OWNER,
+            role=User.RoleChoices.ARENDATOR,
             tenant_code="AR-7777",
             is_registered=True,
         )
@@ -258,7 +258,7 @@ class BotDualOnboardingTests(TestCase):
             username="owner_aziz",
             full_name="Aziz Arendator",
             tenant_code="AR-8888",
-            role=User.RoleChoices.OWNER,
+            role=User.RoleChoices.ARENDATOR,
             is_registered=True,
         )
         await Driver.objects.acreate(

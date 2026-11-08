@@ -185,8 +185,8 @@ export function SettingsTab({ user, onRefreshUser }: SettingsTabProps) {
         </div>
       </div>
 
-      {/* Tenant Code Card for Owner */}
-      {user?.role === "owner" && user?.tenant_code && (
+      {/* Tenant Code Card for Arendator */}
+      {(user?.role === "arendator" || user?.role === "owner") && user?.tenant_code && (
         <div className="bg-blue-50 border border-blue-200 p-4 rounded-2xl shadow-xs space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-blue-900 uppercase tracking-wide">
