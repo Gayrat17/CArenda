@@ -951,4 +951,118 @@ class ClientPortalAndPermissionTests(TestCase):
         self.assertEqual(excel_resp.status_code, 403)
 
 
+class PerformanceAndCachingTests(TestCase):
+    def setUp(self):
+        from django.core.cache import cache
+        from apps.bot.tasks import (
+            send_daily_overdue_alerts_task,
+            send_payment_receipt_notification_task,
+        )
+        cache.clear()
+        self.owner = User.objects.create_user(
+            username="perf_arendator",
+            email="perf@carenda.uz",
+            password="pass",
+            role=User.RoleChoices.OWNER,
+            full_name="Perf Arendator",
+            telegram_id=888777666,
+            cars_limit=20,
+            expires_at=timezone.now() + timedelta(days=30),
+            is_registered=True,
+        )
+        self.driver = Driver.objects.create(
+            owner=self.owner,
+            full_name="Driver Perf",
+            phone="+998901234567",
+        )
+        self.client_api = APIClient()
+        self.client_api.force_authenticate(user=self.owner)
+
+    def test_dashboard_query_count_and_caching(self):
+        from django.core.cache import cache
+        c1 = Car.objects.create(owner=self.owner, name="Car 1", plate_number="01A111AA", status=Car.Status.AVAILABLE)
+        c2 = Car.objects.create(owner=self.owner, name="Car 2", plate_number="01B222BB", status=Car.Status.RENTED)
+        c3 = Car.objects.create(owner=self.owner, name="Car 3", plate_number="01C333CC", status=Car.Status.MAINTENANCE)
+
+        create_contract_service(
+            owner=self.owner,
+            car=c1,
+            driver=self.driver,
+            car_price=Decimal("10000.00"),
+            initial_payment=Decimal("2000.00"),
+            annual_percent=Decimal("20.00"),
+            months_count=12,
+            payment_day=10,
+            start_date=timezone.localdate(),
+        )
+
+        cache.clear()
+        # First call: computes dashboard and caches it
+        response1 = self.client_api.get("/api/v1/dashboard/")
+        self.assertEqual(response1.status_code, 200)
+
+        # Second call: must hit cache with 0 DB queries!
+        with self.assertNumQueries(0):
+            response2 = self.client_api.get("/api/v1/dashboard/")
+            self.assertEqual(response2.status_code, 200)
+            self.assertEqual(response1.json(), response2.json())
+
+    def test_cars_list_prefetch_no_n_plus_one(self):
+        from django.core.cache import cache
+        for i in range(5):
+            car = Car.objects.create(
+                owner=self.owner,
+                name=f"Fleet Car {i}",
+                plate_number=f"01X{i:03d}XX",
+                status=Car.Status.AVAILABLE,
+            )
+            if i < 3:
+                create_contract_service(
+                    owner=self.owner,
+                    car=car,
+                    driver=self.driver,
+                    car_price=Decimal("8000.00"),
+                    initial_payment=Decimal("1000.00"),
+                    annual_percent=Decimal("20.00"),
+                    months_count=6,
+                    payment_day=15,
+                    start_date=timezone.localdate(),
+                )
+
+        cache.clear()
+        # First call without cache: bounded queries
+        response = self.client_api.get("/api/v1/cars/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()), 5)
+
+        # Subsequent call: 0 queries (cache hit)
+        with self.assertNumQueries(0):
+            cached_response = self.client_api.get("/api/v1/cars/")
+            self.assertEqual(cached_response.status_code, 200)
+
+    def test_cache_invalidation_on_car_mutation(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.client_api.get("/api/v1/cars/")
+        self.assertIsNotNone(cache.get(f"tenant_cars_list:{self.owner.id}"))
+
+        create_car_service(
+            owner=self.owner,
+            name="New Invalidation Car",
+            plate_number="01Z999ZZ",
+        )
+        self.assertIsNone(cache.get(f"tenant_cars_list:{self.owner.id}"))
+
+    def test_celery_task_send_daily_overdue_alerts(self):
+        from apps.bot.tasks import send_daily_overdue_alerts_task
+        result = send_daily_overdue_alerts_task()
+        self.assertIsInstance(result, int)
+
+    def test_celery_task_send_payment_receipt(self):
+        from apps.bot.tasks import send_payment_receipt_notification_task
+        result = send_payment_receipt_notification_task(payment_id=999999, amount_paid="100.00")
+        self.assertFalse(result)
+
+
+
 

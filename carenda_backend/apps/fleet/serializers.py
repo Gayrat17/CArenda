@@ -109,21 +109,36 @@ class CarListSerializer(serializers.ModelSerializer):
         if obj.status != Car.Status.RENTED:
             return None
 
-        active_contract = (
-            obj.contracts.filter(is_active=True)
-            .select_related("driver")
-            .first()
-        )
+        if hasattr(obj, "active_contracts_list"):
+            active_contract = (
+                obj.active_contracts_list[0]
+                if obj.active_contracts_list
+                else None
+            )
+        else:
+            active_contract = (
+                obj.contracts.filter(is_active=True)
+                .select_related("driver")
+                .first()
+            )
+
         if not active_contract:
             return None
 
-        next_payment = (
-            active_contract.payments.filter(
-                status__in=[Payment.Status.PENDING, Payment.Status.PARTIAL]
+        if hasattr(active_contract, "pending_payments"):
+            next_payment = (
+                active_contract.pending_payments[0]
+                if active_contract.pending_payments
+                else None
             )
-            .order_by("due_date")
-            .first()
-        )
+        else:
+            next_payment = (
+                active_contract.payments.filter(
+                    status__in=[Payment.Status.PENDING, Payment.Status.PARTIAL]
+                )
+                .order_by("due_date")
+                .first()
+            )
 
         return {
             "contract_id": active_contract.id,

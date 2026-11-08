@@ -3,12 +3,40 @@ from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 
 from dateutil.relativedelta import relativedelta
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
+from apps.bot.tasks import send_payment_receipt_notification_task
 from apps.fleet.models import Car, Contract, Driver, Payment
 from apps.users.models import User, UserSetting
+
+
+def invalidate_tenant_cache(owner_id: int, telegram_id: int | None = None) -> None:
+    """
+    Clears cached dashboard and car lists for the given tenant owner,
+    and optionally clears auth cache for the user's telegram_id.
+    """
+    try:
+        today_str = timezone.localdate().isoformat()
+        direct_keys = [
+            f"tenant_dashboard:{owner_id}:{today_str}",
+            f"tenant_cars_list:{owner_id}",
+        ]
+        if telegram_id:
+            direct_keys.append(f"auth_user:{telegram_id}")
+
+        for k in direct_keys:
+            cache.delete(k)
+
+        if hasattr(cache, "delete_pattern"):
+            try:
+                cache.delete_pattern(f"tenant_dashboard:{owner_id}:*")
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 
 def calculate_contract_totals(
@@ -66,13 +94,15 @@ def create_car_service(
 
     normalized_plate = plate_number.strip().upper()
 
-    return Car.objects.create(
+    car = Car.objects.create(
         owner=owner,
         name=name.strip(),
         plate_number=normalized_plate,
         default_price=default_price,
         status=Car.Status.AVAILABLE,
     )
+    invalidate_tenant_cache(owner.id, getattr(owner, "telegram_id", None))
+    return car
 
 
 @transaction.atomic
@@ -150,6 +180,7 @@ def create_contract_service(
         )
 
     Payment.objects.bulk_create(payments)
+    invalidate_tenant_cache(owner.id, getattr(owner, "telegram_id", None))
     return contract
 
 
@@ -184,6 +215,17 @@ def record_payment_service(
         payment.comment = comment.strip()
 
     payment.save(update_fields=["paid_amount", "status", "paid_at", "comment"])
+    invalidate_tenant_cache(owner.id, getattr(owner, "telegram_id", None))
+
+    try:
+        payment_id = payment.id
+        amount_str = str(amount)
+        transaction.on_commit(
+            lambda: send_payment_receipt_notification_task.delay(payment_id, amount_str)
+        )
+    except Exception:
+        pass
+
     return payment
 
 
@@ -214,5 +256,6 @@ def close_contract_service(
 
     contract.car.status = Car.Status.AVAILABLE
     contract.car.save(update_fields=["status"])
+    invalidate_tenant_cache(owner.id, getattr(owner, "telegram_id", None))
 
     return contract

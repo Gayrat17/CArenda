@@ -57,6 +57,10 @@ class Car(models.Model):
                 name="unique_owner_plate",
             )
         ]
+        indexes = [
+            models.Index(fields=["owner", "status"]),
+            models.Index(fields=["owner", "-created_at"]),
+        ]
 
     def __str__(self):
         return f"{self.name} ({self.plate_number})"
@@ -89,6 +93,9 @@ class Driver(models.Model):
     class Meta:
         verbose_name = "Driver"
         verbose_name_plural = "Drivers"
+        indexes = [
+            models.Index(fields=["owner", "phone"]),
+        ]
 
     @property
     def normalized_phone(self) -> str:
@@ -182,6 +189,11 @@ class Contract(models.Model):
     class Meta:
         verbose_name = "Contract"
         verbose_name_plural = "Contracts"
+        indexes = [
+            models.Index(fields=["owner", "is_active"]),
+            models.Index(fields=["car", "is_active"]),
+            models.Index(fields=["driver", "is_active"]),
+        ]
 
     def calculate_totals(self):
         """Helper to calculate financial outputs if not manually populated."""
@@ -253,6 +265,10 @@ class Payment(models.Model):
         ordering = ["due_date", "month_number"]
         verbose_name = "Payment"
         verbose_name_plural = "Payments"
+        indexes = [
+            models.Index(fields=["contract", "status", "due_date"]),
+            models.Index(fields=["status", "due_date"]),
+        ]
 
     @property
     def remaining_amount(self) -> Decimal:

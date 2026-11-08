@@ -3,6 +3,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.fleet.services import invalidate_tenant_cache
 from apps.users.models import User, UserSetting
 from apps.users.serializers import UserMeSerializer, UserMeUpdateSerializer
 
@@ -45,5 +46,6 @@ class MeAPIView(APIView):
             setting.default_annual_percent = validated_data["default_annual_percent"]
             setting.save(update_fields=["default_annual_percent"])
 
+        invalidate_tenant_cache(user.tenant_owner.id, getattr(user, "telegram_id", None))
         response_serializer = UserMeSerializer(user)
         return Response(response_serializer.data)

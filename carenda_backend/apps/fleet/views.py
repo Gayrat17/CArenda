@@ -1,7 +1,8 @@
 from decimal import Decimal
 
+from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import Sum
+from django.db.models import Count, Prefetch, Q, Sum
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -30,6 +31,7 @@ from apps.fleet.services import (
     close_contract_service,
     create_car_service,
     create_contract_service,
+    invalidate_tenant_cache,
     record_payment_service,
 )
 from apps.users.models import User, UserSetting
@@ -53,15 +55,23 @@ class DashboardAPIView(APIView):
     def get(self, request):
         owner = request.user.tenant_owner
         today = timezone.localdate()
+        cache_key = f"tenant_dashboard:{owner.id}:{today.isoformat()}"
+        cached_data = cache.get(cache_key)
+        if cached_data is not None:
+            return Response(cached_data)
 
-        cars_qs = owner.cars.all()
-        total_cars = cars_qs.count()
-        available_cars = cars_qs.filter(status=Car.Status.AVAILABLE).count()
-        rented_cars = cars_qs.filter(status=Car.Status.RENTED).count()
-        maintenance_cars = cars_qs.filter(status=Car.Status.MAINTENANCE).count()
+        car_stats = owner.cars.aggregate(
+            total=Count("id"),
+            available=Count("id", filter=Q(status=Car.Status.AVAILABLE)),
+            rented=Count("id", filter=Q(status=Car.Status.RENTED)),
+            maintenance=Count("id", filter=Q(status=Car.Status.MAINTENANCE)),
+        )
+        total_cars = car_stats["total"] or 0
+        available_cars = car_stats["available"] or 0
+        rented_cars = car_stats["rented"] or 0
+        maintenance_cars = car_stats["maintenance"] or 0
 
-        active_contracts_qs = Contract.objects.filter(owner=owner, is_active=True)
-        active_contracts_count = active_contracts_qs.count()
+        active_contracts_count = Contract.objects.filter(owner=owner, is_active=True).count()
 
         active_payments = Payment.objects.filter(
             contract__owner=owner, contract__is_active=True
@@ -104,19 +114,19 @@ class DashboardAPIView(APIView):
                 }
             )
 
-        return Response(
-            {
-                "total_cars": total_cars,
-                "available_cars": available_cars,
-                "rented_cars": rented_cars,
-                "maintenance_cars": maintenance_cars,
-                "active_contracts_count": active_contracts_count,
-                "total_expected_usd": f"{total_expected_usd:.2f}",
-                "total_collected_usd": f"{total_collected_usd:.2f}",
-                "total_remaining_usd": f"{total_remaining_usd:.2f}",
-                "overdue_payments": overdue_payments_data,
-            }
-        )
+        data = {
+            "total_cars": total_cars,
+            "available_cars": available_cars,
+            "rented_cars": rented_cars,
+            "maintenance_cars": maintenance_cars,
+            "active_contracts_count": active_contracts_count,
+            "total_expected_usd": f"{total_expected_usd:.2f}",
+            "total_collected_usd": f"{total_collected_usd:.2f}",
+            "total_remaining_usd": f"{total_remaining_usd:.2f}",
+            "overdue_payments": overdue_payments_data,
+        }
+        cache.set(cache_key, data, 60)
+        return Response(data)
 
 
 class CarListCreateAPIView(APIView):
@@ -124,8 +134,33 @@ class CarListCreateAPIView(APIView):
 
     def get(self, request):
         owner = request.user.tenant_owner
-        cars = owner.cars.all().order_by("-created_at")
+        cache_key = f"tenant_cars_list:{owner.id}"
+        cached_data = cache.get(cache_key)
+        if cached_data is not None:
+            return Response(cached_data)
+
+        active_contracts_prefetch = Prefetch(
+            "contracts",
+            queryset=Contract.objects.filter(is_active=True)
+            .select_related("driver")
+            .prefetch_related(
+                Prefetch(
+                    "payments",
+                    queryset=Payment.objects.filter(
+                        status__in=[Payment.Status.PENDING, Payment.Status.PARTIAL]
+                    ).order_by("due_date"),
+                    to_attr="pending_payments",
+                )
+            ),
+            to_attr="active_contracts_list",
+        )
+        cars = (
+            owner.cars.all()
+            .order_by("-created_at")
+            .prefetch_related(active_contracts_prefetch)
+        )
         serializer = CarListSerializer(cars, many=True)
+        cache.set(cache_key, serializer.data, 60)
         return Response(serializer.data)
 
     def post(self, request):
@@ -180,9 +215,11 @@ class CarDetailAPIView(APIView):
             )
 
         updated_car = serializer.save()
+        invalidate_tenant_cache(owner.id, getattr(owner, "telegram_id", None))
         return Response(CarDetailSerializer(updated_car).data)
 
     def delete(self, request, pk):
+        owner = request.user.tenant_owner
         car = self.get_object(request, pk)
         if car.contracts.exists():
             return Response(
@@ -190,6 +227,7 @@ class CarDetailAPIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         car.delete()
+        invalidate_tenant_cache(owner.id, getattr(owner, "telegram_id", None))
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

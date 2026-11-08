@@ -20,6 +20,12 @@ if [ "$1" = "runserver" ]; then
 elif [ "$1" = "runbot" ]; then
   echo "Starting Carenda Aiogram 3 Bot & Scheduler..."
   exec python manage.py runbot
+elif [ "$1" = "worker" ]; then
+  echo "Starting Celery Worker..."
+  exec celery -A config worker -l info -c 2
+elif [ "$1" = "beat" ]; then
+  echo "Starting Celery Beat..."
+  exec celery -A config beat -l info
 else
   exec "$@"
 fi

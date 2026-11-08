@@ -40,6 +40,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    'django.middleware.gzip.GZipMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -72,19 +73,71 @@ TEMPLATES = [
 WSGI_APPLICATION = 'config.wsgi.application'
 
 # Database
-# Use DATABASE_URL from .env if present, falling back to db.sqlite3
+CONN_MAX_AGE = config('CONN_MAX_AGE', default=60, cast=int)
 DATABASE_URL = config('DATABASE_URL', default=None)
 if DATABASE_URL:
     DATABASES = {
-        'default': dj_database_url.parse(DATABASE_URL, conn_max_age=600)
+        'default': dj_database_url.parse(DATABASE_URL, conn_max_age=CONN_MAX_AGE)
     }
 else:
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': BASE_DIR / 'db.sqlite3',
+            'CONN_MAX_AGE': CONN_MAX_AGE,
         }
     }
+
+# Redis & Resilient Caching Configuration
+import sys
+from celery.schedules import crontab
+
+IS_TESTING = "test" in sys.argv
+REDIS_URL = config("REDIS_URL", default="redis://127.0.0.1:6379/0")
+
+if IS_TESTING:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "carenda-testing-cache",
+        }
+    }
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django_redis.cache.RedisCache",
+            "LOCATION": REDIS_URL,
+            "OPTIONS": {
+                "CLIENT_CLASS": "django_redis.client.DefaultClient",
+                "IGNORE_EXCEPTIONS": True,
+                "SOCKET_CONNECT_TIMEOUT": 2,
+                "SOCKET_TIMEOUT": 2,
+            },
+            "KEY_PREFIX": "carenda",
+        }
+    }
+
+DJANGO_REDIS_IGNORE_EXCEPTIONS = True
+
+# Celery Asynchronous & Scheduled Tasks Configuration
+CELERY_BROKER_URL = config("CELERY_BROKER_URL", default=REDIS_URL)
+CELERY_RESULT_BACKEND = config("CELERY_RESULT_BACKEND", default=REDIS_URL)
+CELERY_TIMEZONE = "Asia/Tashkent"
+CELERY_ENABLE_UTC = False
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+
+if IS_TESTING:
+    CELERY_TASK_ALWAYS_EAGER = True
+    CELERY_TASK_EAGER_PROPAGATES = True
+
+CELERY_BEAT_SCHEDULE = {
+    "send_daily_overdue_alerts_morning": {
+        "task": "apps.bot.tasks.send_daily_overdue_alerts_task",
+        "schedule": crontab(hour=9, minute=0),
+    },
+}
 
 # Custom User Model
 AUTH_USER_MODEL = 'users.User'

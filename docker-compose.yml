@@ -18,6 +18,22 @@ services:
       retries: 5
       start_period: 10s
 
+  redis:
+    image: redis:7-alpine
+    container_name: carenda_redis
+    restart: always
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    ports:
+      - "${REDIS_PORT_BIND:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
   backend:
     build:
       context: ./carenda_backend
@@ -33,6 +49,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgres://${POSTGRES_USER:-carenda_user}:${POSTGRES_PASSWORD:-carenda_password}@db:5432/${POSTGRES_DB:-carenda_db}}
       DB_HOST: db
       DB_PORT: 5432
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       BOT_TOKEN: ${BOT_TOKEN:-}
       WEBAPP_URL: ${WEBAPP_URL:-http://localhost:3000}
     ports:
@@ -41,6 +58,8 @@ services:
       - static_volume:/app/staticfiles
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health/"]
@@ -64,12 +83,63 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgres://${POSTGRES_USER:-carenda_user}:${POSTGRES_PASSWORD:-carenda_password}@db:5432/${POSTGRES_DB:-carenda_db}}
       DB_HOST: db
       DB_PORT: 5432
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       BOT_TOKEN: ${BOT_TOKEN:-}
       WEBAPP_URL: ${WEBAPP_URL:-http://localhost:3000}
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
       backend:
+        condition: service_healthy
+
+  celery_worker:
+    build:
+      context: ./carenda_backend
+      dockerfile: Dockerfile
+    container_name: carenda_celery_worker
+    restart: always
+    command: ["worker"]
+    environment:
+      SECRET_KEY: ${SECRET_KEY:-django-insecure-production-secret-key-change-me}
+      DEBUG: ${DEBUG:-False}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-*}
+      TIME_ZONE: ${TIME_ZONE:-Asia/Tashkent}
+      DATABASE_URL: ${DATABASE_URL:-postgres://${POSTGRES_USER:-carenda_user}:${POSTGRES_PASSWORD:-carenda_password}@db:5432/${POSTGRES_DB:-carenda_db}}
+      DB_HOST: db
+      DB_PORT: 5432
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      BOT_TOKEN: ${BOT_TOKEN:-}
+      WEBAPP_URL: ${WEBAPP_URL:-http://localhost:3000}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery_beat:
+    build:
+      context: ./carenda_backend
+      dockerfile: Dockerfile
+    container_name: carenda_celery_beat
+    restart: always
+    command: ["beat"]
+    environment:
+      SECRET_KEY: ${SECRET_KEY:-django-insecure-production-secret-key-change-me}
+      DEBUG: ${DEBUG:-False}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-*}
+      TIME_ZONE: ${TIME_ZONE:-Asia/Tashkent}
+      DATABASE_URL: ${DATABASE_URL:-postgres://${POSTGRES_USER:-carenda_user}:${POSTGRES_PASSWORD:-carenda_password}@db:5432/${POSTGRES_DB:-carenda_db}}
+      DB_HOST: db
+      DB_PORT: 5432
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      BOT_TOKEN: ${BOT_TOKEN:-}
+      WEBAPP_URL: ${WEBAPP_URL:-http://localhost:3000}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   frontend:
@@ -91,4 +161,5 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:
   static_volume:

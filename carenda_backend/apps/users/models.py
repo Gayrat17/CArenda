@@ -96,6 +96,10 @@ class User(AbstractUser):
     class Meta:
         verbose_name = "User"
         verbose_name_plural = "Users"
+        indexes = [
+            models.Index(fields=["role", "is_registered"]),
+            models.Index(fields=["parent_owner", "role"]),
+        ]
 
     def save(self, *args, **kwargs):
         # Auto-generate unique tenant_code ONLY for owner if not set

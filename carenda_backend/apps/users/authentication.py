@@ -5,6 +5,7 @@ import urllib.parse
 from datetime import timedelta
 
 from django.conf import settings
+from django.core.cache import cache
 from django.utils import timezone
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
@@ -50,6 +51,11 @@ class TelegramWebAppAuthentication(BaseAuthentication):
             except (ValueError, TypeError):
                 dev_tg_id = 999999999
 
+        cache_key = f"auth_user:{dev_tg_id}"
+        cached_user = cache.get(cache_key)
+        if cached_user is not None:
+            return (cached_user, None)
+
         username = (
             "demo_arendator"
             if dev_tg_id == 999999999
@@ -85,6 +91,8 @@ class TelegramWebAppAuthentication(BaseAuthentication):
                 user.save(update_fields=["full_name", "username"])
 
         UserSetting.objects.get_or_create(owner=user)
+        user = User.objects.select_related("settings", "parent_owner").get(pk=user.pk)
+        cache.set(cache_key, user, 60)
         return (user, None)
 
     def _validate_telegram_init_data(self, init_data_raw: str):
@@ -131,6 +139,11 @@ class TelegramWebAppAuthentication(BaseAuthentication):
         if not telegram_id:
             raise AuthenticationFailed("Telegram user id missing")
 
+        cache_key = f"auth_user:{telegram_id}"
+        cached_user = cache.get(cache_key)
+        if cached_user is not None:
+            return (cached_user, None)
+
         first_name = user_data.get("first_name", "")
         last_name = user_data.get("last_name", "")
         tg_username = user_data.get("username") or f"tg_{telegram_id}"
@@ -171,4 +184,6 @@ class TelegramWebAppAuthentication(BaseAuthentication):
                 user.save(update_fields=["username", "full_name", "first_name", "last_name"])
 
         UserSetting.objects.get_or_create(owner=user)
+        user = User.objects.select_related("settings", "parent_owner").get(pk=user.pk)
+        cache.set(cache_key, user, 60)
         return (user, None)

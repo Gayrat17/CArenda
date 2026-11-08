@@ -48,29 +48,35 @@ export default function Home() {
   }
   const [activePaymentTarget, setActivePaymentTarget] = useState<PaymentTargetModal | null>(null);
 
-  // Initialize Telegram WebApp and fetch core state
-  const loadData = useCallback(async () => {
+  // Initialize Telegram WebApp and fetch core state in parallel without waterfall
+  const loadData = useCallback(async (forceRefresh = false) => {
     try {
       setLoading(true);
-      const meData = await getMe().catch(() => null);
-      if (meData) {
+      const [meRes, dashRes, carsRes, driversRes] = await Promise.allSettled([
+        getMe({ forceRefresh }),
+        getDashboard({ forceRefresh }),
+        getCars({ forceRefresh }),
+        getDrivers({ forceRefresh }),
+      ]);
+
+      if (meRes.status === "fulfilled" && meRes.value) {
+        const meData = meRes.value;
         setUser(meData);
-        // If user (driver) or not registered, do not load Arendator-only datasets
         if (meData.role === "user" || meData.is_registered === false) {
           setLoading(false);
           return;
         }
       }
 
-      const [dashData, carsData, driversData] = await Promise.all([
-        getDashboard().catch(() => null),
-        getCars().catch(() => []),
-        getDrivers().catch(() => []),
-      ]);
-
-      if (dashData) setDashboard(dashData);
-      setCars(carsData);
-      setDrivers(driversData);
+      if (dashRes.status === "fulfilled" && dashRes.value) {
+        setDashboard(dashRes.value);
+      }
+      if (carsRes.status === "fulfilled" && carsRes.value) {
+        setCars(carsRes.value);
+      }
+      if (driversRes.status === "fulfilled" && driversRes.value) {
+        setDrivers(driversRes.value);
+      }
     } catch (err) {
       console.error("Failed to load platform data:", err);
     } finally {
