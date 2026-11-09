@@ -104,7 +104,7 @@ export function CarendaApp() {
           return;
         }
         if (boot.me.role === "ijarachi" || boot.me.role === "user") {
-          router.replace("/my-contracts");
+          router.replace("/client");
           setLoading(false);
           return;
         }
@@ -225,9 +225,9 @@ export function CarendaApp() {
     return null;
   }
 
-  // Client (Ijarachi) redirect to Client Portal
+  // Client (Ijarachi) redirect to isolated Client Portal
   if (user && (user.role === "ijarachi" || user.role === "user")) {
-    router.replace("/my-contracts");
+    router.replace("/client");
     return null;
   }
 

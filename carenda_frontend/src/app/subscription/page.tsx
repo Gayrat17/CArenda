@@ -52,7 +52,7 @@ export default function SubscriptionPage() {
           return;
         }
         if (boot.me.role === "ijarachi" || boot.me.role === "user") {
-          router.replace("/my-contracts");
+          router.replace("/client");
           return;
         }
         setUser(boot.me);

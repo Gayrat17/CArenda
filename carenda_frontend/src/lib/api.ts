@@ -541,6 +541,62 @@ export async function getUserSchedule(options?: { forceRefresh?: boolean }): Pro
 
 export const getClientContracts = getUserSchedule;
 
+export async function getClientDashboard(options?: { forceRefresh?: boolean }): Promise<import("@/types/fleet").ClientDashboardResponse> {
+  return apiFetch<import("@/types/fleet").ClientDashboardResponse>("/client/dashboard/", options);
+}
+
+export async function downloadClientContractExcel(
+  contractId: number,
+  filename?: string
+): Promise<void> {
+  let initData = "";
+  if (typeof window !== "undefined") {
+    initData = window.Telegram?.WebApp?.initData?.trim() || "";
+  }
+  const isTelegram = Boolean(initData);
+  const cleanEndpoint = `/client/contracts/${contractId}/export/excel/${isTelegram ? "?send_to_bot=1" : ""}`;
+  const url = `${API_BASE_URL}${cleanEndpoint}`;
+
+  const authHeaderValue = initData ? `tma ${initData}` : "tma dev";
+
+  const response = await fetch(url, {
+    headers: {
+      Authorization: authHeaderValue,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error("Shartnoma Excel hisobotini yuklab olishda xatolik yuz berdi.");
+  }
+
+  if (isTelegram) {
+    const tg = window.Telegram?.WebApp;
+    try {
+      tg?.HapticFeedback?.notificationOccurred?.("success");
+    } catch {
+      // ignore
+    }
+    const msg =
+      "✅ Shartnoma to'lov jadvali Excel (.xlsx) formati Telegram botingizga yuborildi!\n\nBot chatidan faylni ko'rishingiz yoki yuklab olishingiz mumkin.";
+    if (typeof tg?.showAlert === "function") {
+      tg.showAlert(msg);
+    } else {
+      alert(msg);
+    }
+    return;
+  }
+
+  const blob = await response.blob();
+  const downloadUrl = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = downloadUrl;
+  a.download = filename || `shartnoma_${contractId}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  window.URL.revokeObjectURL(downloadUrl);
+}
+
 // Subscription & Payment Settings APIs
 export async function getSubscriptionSettings(options?: { forceRefresh?: boolean }): Promise<import("@/types/subscription").SubscriptionSettings> {
   return apiFetch<import("@/types/subscription").SubscriptionSettings>("/subscriptions/settings/", options);

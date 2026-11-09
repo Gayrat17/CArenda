@@ -69,6 +69,8 @@ export interface ClientContract {
   invite_code?: string;
   is_active: boolean;
   car_name: string;
+  car_year?: number | null;
+  car_notes?: string;
   plate_number: string;
   owner_name: string;
   owner_phone: string;
@@ -86,6 +88,42 @@ export interface ClientContract {
   next_due_date: string | null;
   next_due_amount: string | null;
   payments: ClientPaymentScheduleItem[];
+}
+
+export interface ClientDashboardNextPayment {
+  contract_id: number;
+  car_name: string;
+  car_year?: number | null;
+  plate_number: string;
+  owner_name?: string;
+  owner_phone?: string;
+  month_number: number;
+  due_date: string;
+  amount: string;
+  days_left: number;
+  is_overdue: boolean;
+  is_today: boolean;
+  days_overdue: number;
+}
+
+export interface ClientDashboardSummary {
+  total_contracts: number;
+  active_contracts: number;
+  total_paid_usd: string;
+  total_remaining_usd: string;
+  next_payment: ClientDashboardNextPayment | null;
+}
+
+export interface ClientDashboardResponse {
+  client: {
+    id: number;
+    full_name: string;
+    phone: string;
+    telegram_id: number | null;
+    is_onboarded: boolean;
+  };
+  contracts: ClientContract[];
+  summary: ClientDashboardSummary;
 }
 
 export type UserScheduleContract = ClientContract;

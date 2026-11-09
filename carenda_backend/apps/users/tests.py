@@ -687,3 +687,37 @@ class AuthOnboardingRBACFlowTests(TestCase):
         res_arendator_client = self.client_arendator.get("/api/v1/client/my-contracts/")
         self.assertEqual(res_arendator_client.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_client_dashboard_and_excel_export(self):
+        # Onboard as Ijarachi
+        self.client_raw.post(
+            "/api/v1/auth/complete-onboarding/",
+            {
+                "role": "ijarachi",
+                "phone_number": "+998912223344",
+                "invite_code": self.contract.invite_code,
+            },
+            format="json",
+        )
+
+        # GET /api/v1/client/dashboard/
+        res_dash = self.client_raw.get("/api/v1/client/dashboard/")
+        self.assertEqual(res_dash.status_code, status.HTTP_200_OK)
+        data = res_dash.json()
+        self.assertIn("client", data)
+        self.assertIn("contracts", data)
+        self.assertIn("summary", data)
+        self.assertEqual(len(data["contracts"]), 1)
+        self.assertEqual(data["contracts"][0]["car_name"], "Chevrolet Cobalt")
+
+        # Arendator calling /api/v1/client/dashboard/ must return 403 Forbidden
+        res_aren_dash = self.client_arendator.get("/api/v1/client/dashboard/")
+        self.assertEqual(res_aren_dash.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Client exporting their contract excel
+        res_excel = self.client_raw.get(f"/api/v1/client/contracts/{self.contract.id}/export/excel/")
+        self.assertEqual(res_excel.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            res_excel.get("Content-Type"),
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+

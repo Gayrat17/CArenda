@@ -71,7 +71,7 @@ export default function LoginPage() {
       .then((boot) => {
         if (boot?.me?.is_onboarded) {
           if (boot.me.role === "ijarachi" || boot.me.role === "user") {
-            router.replace("/my-contracts");
+            router.replace("/client");
           } else {
             router.replace("/");
           }
@@ -167,7 +167,7 @@ export default function LoginPage() {
       }
 
       if (res.role === "ijarachi" || res.role === "user") {
-        router.replace("/my-contracts");
+        router.replace("/client");
       } else {
         router.replace("/");
       }

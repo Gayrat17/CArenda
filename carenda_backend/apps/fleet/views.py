@@ -339,6 +339,8 @@ def get_user_schedule_data(user):
                 "driver_name": driver.full_name,
                 "driver_phone": driver.phone,
                 "car_name": c.car.name,
+                "car_year": c.car.year,
+                "car_notes": c.car.notes or "",
                 "plate_number": c.car.plate_number,
                 "owner_name": c.owner.full_name or c.owner.username or "Arendator",
                 "owner_phone": c.owner.phone,
@@ -914,3 +916,155 @@ class UserScheduleAPIView(APIView):
 
 
 ClientMyContractsAPIView = UserScheduleAPIView
+
+
+class ClientDashboardAPIView(APIView):
+    """
+    Dedicated read-only dashboard endpoint for logged-in Ijarachi (client).
+    Returns:
+    - client: basic identity (full_name, phone, telegram_id, is_onboarded)
+    - contracts: list of contracts with car info, financials, and payment schedule
+    - summary: total_contracts, active_contracts, total_paid_usd, total_remaining_usd, next_payment info
+    """
+    permission_classes = [IsAuthenticated, IsIjarachi]
+
+    def get(self, request):
+        contracts = get_user_schedule_data(request.user)
+        user = request.user
+        today = timezone.localdate()
+
+        total_paid = Decimal("0.00")
+        total_remaining = Decimal("0.00")
+        next_payment = None
+
+        for c in contracts:
+            try:
+                total_paid += Decimal(str(c.get("paid_total_usd", "0.00")))
+                total_remaining += Decimal(str(c.get("remaining_total_usd", "0.00")))
+            except Exception:
+                pass
+
+            if not next_payment and c.get("next_due_date"):
+                payments = c.get("payments", [])
+                for p in payments:
+                    if p.get("status") in ("pending", "partial"):
+                        due_date_str = p.get("due_date")
+                        days_diff = 0
+                        try:
+                            from datetime import date
+                            due_d = date.fromisoformat(due_date_str)
+                            days_diff = (due_d - today).days
+                        except Exception:
+                            pass
+                        next_payment = {
+                            "contract_id": c.get("id"),
+                            "car_name": c.get("car_name"),
+                            "car_year": c.get("car_year"),
+                            "plate_number": c.get("plate_number"),
+                            "owner_name": c.get("owner_name"),
+                            "owner_phone": c.get("owner_phone"),
+                            "month_number": p.get("month_number"),
+                            "due_date": due_date_str,
+                            "amount": p.get("remaining_amount"),
+                            "days_left": days_diff,
+                            "is_overdue": days_diff < 0,
+                            "is_today": days_diff == 0,
+                            "days_overdue": max(0, -days_diff),
+                        }
+                        break
+
+        client_data = {
+            "id": user.id,
+            "full_name": user.full_name or user.username or "Mijoz",
+            "phone": user.phone_number or user.phone or "",
+            "telegram_id": user.telegram_id,
+            "is_onboarded": getattr(user, "is_onboarded", True),
+        }
+
+        return Response({
+            "client": client_data,
+            "contracts": contracts,
+            "summary": {
+                "total_contracts": len(contracts),
+                "active_contracts": len([c for c in contracts if c.get("is_active")]),
+                "total_paid_usd": f"{total_paid:.2f}",
+                "total_remaining_usd": f"{total_remaining:.2f}",
+                "next_payment": next_payment,
+            },
+        })
+
+
+class ClientContractExcelExportAPIView(APIView):
+    """
+    Allows an Ijarachi (client) to download their own contract payment schedule as an Excel file,
+    or have it sent directly to their Telegram bot chat.
+    """
+    permission_classes = [IsAuthenticated, IsIjarachi]
+
+    def get(self, request, pk):
+        contracts = get_user_schedule_data(request.user)
+        matched_contract_data = next((c for c in contracts if c.get("id") == pk), None)
+        if not matched_contract_data:
+            return Response(
+                {"detail": "Shartnoma topilmadi yoki sizga biriktirilmagan."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        contract = get_object_or_404(
+            Contract.objects.select_related("car", "driver").prefetch_related("payments"),
+            pk=pk,
+        )
+
+        excel_bytes = generate_single_contract_excel_report(contract)
+        clean_plate = re.sub(r"\s+", "", contract.car.plate_number)
+        filename = f"shartnoma_{clean_plate}_{contract.id}.xlsx"
+
+        sent_to_bot = False
+        send_to_bot = (
+            request.query_params.get("send_to_bot") in ("1", "true", "True")
+            or bool(request.user.telegram_id and "tma " in request.headers.get("Authorization", "").lower())
+        )
+        if send_to_bot and request.user.telegram_id:
+            bot_token = getattr(settings, "TELEGRAM_BOT_TOKEN", None)
+            if bot_token and bot_token != "dev_bot_token_123456":
+                from aiogram import Bot
+                from aiogram.types import BufferedInputFile
+
+                async def _send():
+                    bot = Bot(token=bot_token)
+                    try:
+                        input_file = BufferedInputFile(excel_bytes, filename=filename)
+                        caption = (
+                            f"📄 <b>Shartnoma to'lov jadvali:</b> {contract.car.name} ({contract.car.plate_number})\n\n"
+                            f"🏢 Arendator: <b>{contract.owner.full_name or contract.owner.username}</b>\n"
+                            f"👤 Mijoz: <b>{contract.driver.full_name}</b>\n"
+                            f"💵 Oylik to'lov: <b>${contract.monthly_amount:.2f}</b>\n\n"
+                            f"<i>Faylni yuklab olib, to'lovlar jadvalini ko'rishingiz mumkin.</i>"
+                        )
+                        await bot.send_document(
+                            chat_id=request.user.telegram_id,
+                            document=input_file,
+                            caption=caption,
+                            parse_mode="HTML",
+                        )
+                        return True
+                    except Exception as e:
+                        logger.error(f"Failed to send client contract excel to bot: {e}")
+                        return False
+                    finally:
+                        await bot.session.close()
+
+                try:
+                    sent_to_bot = asyncio.run(_send())
+                except Exception as e:
+                    logger.error(f"Error executing bot async delivery: {e}")
+                    sent_to_bot = False
+
+        response = HttpResponse(
+            excel_bytes,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        if sent_to_bot:
+            response["X-Sent-To-Bot"] = "1"
+        return response

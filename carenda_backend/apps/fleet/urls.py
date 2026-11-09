@@ -17,6 +17,8 @@ from apps.fleet.views import (
     PaymentPayAPIView,
     PaymentPostponeAPIView,
     UserScheduleAPIView,
+    ClientDashboardAPIView,
+    ClientContractExcelExportAPIView,
 )
 
 urlpatterns = [
@@ -49,7 +51,9 @@ urlpatterns = [
     path("payments/<int:pk>/pay/", PaymentPayAPIView.as_view(), name="fleet-payment-pay"),
     path("payments/<int:pk>/postpone/", PaymentPostponeAPIView.as_view(), name="fleet-payment-postpone"),
 
-    # Client / User (Driver) Read-only Schedule
+    # Client / User (Driver) Read-only Schedule & Dedicated Dashboard
     path("my-schedule/", UserScheduleAPIView.as_view(), name="my-schedule"),
     path("client/my-contracts/", UserScheduleAPIView.as_view(), name="client-my-contracts"),
+    path("client/dashboard/", ClientDashboardAPIView.as_view(), name="client-dashboard"),
+    path("client/contracts/<int:pk>/export/excel/", ClientContractExcelExportAPIView.as_view(), name="client-contract-export-excel"),
 ]
