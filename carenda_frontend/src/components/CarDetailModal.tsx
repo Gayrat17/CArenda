@@ -279,8 +279,8 @@ export function CarDetailModal({
 
                     <div className="space-y-1.5 pt-1">
                       {/* Primary Phone */}
-                      <div
-                        onClick={() => initiatePhoneCall(activeContract.driver_phone)}
+                      <a
+                        href={`tel:${cleanPhoneNumber(activeContract.driver_phone)}`}
                         className="flex items-center justify-between bg-white px-3 py-2.5 rounded-xl border border-blue-100/80 shadow-2xs hover:border-blue-300 transition cursor-pointer active:scale-98"
                       >
                         <div>
@@ -289,24 +289,18 @@ export function CarDetailModal({
                             {activeContract.driver_phone}
                           </span>
                         </div>
-                        <a
-                          href={`tel:${cleanPhoneNumber(activeContract.driver_phone)}`}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            initiatePhoneCall(activeContract.driver_phone);
-                          }}
-                          className="p-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-2xs transition active:scale-95 shrink-0 cursor-pointer"
+                        <div
+                          className="p-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-2xs transition active:scale-95 shrink-0"
                           title="Qo'ng'iroq qilish"
                         >
                           <Phone className="w-3.5 h-3.5" />
-                        </a>
-                      </div>
+                        </div>
+                      </a>
 
                       {/* Secondary Phone if available */}
                       {activeContract.driver_secondary_phone && (
-                        <div
-                          onClick={() => initiatePhoneCall(activeContract.driver_secondary_phone)}
+                        <a
+                          href={`tel:${cleanPhoneNumber(activeContract.driver_secondary_phone)}`}
                           className="flex items-center justify-between bg-white px-3 py-2.5 rounded-xl border border-blue-100/80 shadow-2xs hover:border-blue-300 transition cursor-pointer active:scale-98"
                         >
                           <div>
@@ -315,19 +309,13 @@ export function CarDetailModal({
                               {activeContract.driver_secondary_phone}
                             </span>
                           </div>
-                          <a
-                            href={`tel:${cleanPhoneNumber(activeContract.driver_secondary_phone)}`}
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              initiatePhoneCall(activeContract.driver_secondary_phone);
-                            }}
-                            className="p-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-2xs transition active:scale-95 shrink-0 cursor-pointer"
+                          <div
+                            className="p-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-2xs transition active:scale-95 shrink-0"
                             title="Qo'shimcha raqamga qo'ng'iroq qilish"
                           >
                             <Phone className="w-3.5 h-3.5" />
-                          </a>
-                        </div>
+                          </div>
+                        </a>
                       )}
                     </div>
                   </div>

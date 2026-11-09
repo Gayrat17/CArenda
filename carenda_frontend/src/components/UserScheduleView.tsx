@@ -207,11 +207,7 @@ export function UserScheduleView({ user, initialContracts, onRefreshUser }: User
                 {activeContract.owner_phone && (
                   <a
                     href={`tel:${cleanPhoneNumber(activeContract.owner_phone)}`}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      initiatePhoneCall(activeContract.owner_phone);
-                    }}
+                    onClick={(e) => e.stopPropagation()}
                     className="mt-1 inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-xl hover:bg-emerald-500/30 transition cursor-pointer active:scale-95"
                   >
                     <Phone className="w-3.5 h-3.5" />

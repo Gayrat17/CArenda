@@ -360,8 +360,19 @@ export function initiatePhoneCall(phone: string | null | undefined): void {
 
   const telUri = `tel:${clean}`;
   try {
-    window.location.href = telUri;
+    const a = document.createElement("a");
+    a.href = telUri;
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      try {
+        document.body.removeChild(a);
+      } catch {
+        // ignore cleanup error
+      }
+    }, 150);
   } catch {
-    window.open(telUri, "_self");
+    window.location.href = telUri;
   }
 }

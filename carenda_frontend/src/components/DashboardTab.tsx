@@ -539,11 +539,7 @@ export function DashboardTab({
                           {item.driver_phone && (
                             <a
                               href={`tel:${cleanPhoneNumber(item.driver_phone)}`}
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                initiatePhoneCall(item.driver_phone);
-                              }}
+                              onClick={(e) => e.stopPropagation()}
                               className="p-2 bg-blue-50 hover:bg-blue-100 active:scale-95 text-blue-600 rounded-lg border border-blue-200/60 transition cursor-pointer flex items-center justify-center shadow-2xs"
                               title="Haydovchiga qo'ng'iroq qilish"
                             >
@@ -665,11 +661,7 @@ export function DashboardTab({
                           {item.driver_phone && (
                             <a
                               href={`tel:${cleanPhoneNumber(item.driver_phone)}`}
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                initiatePhoneCall(item.driver_phone);
-                              }}
+                              onClick={(e) => e.stopPropagation()}
                               className="p-2 bg-blue-50 hover:bg-blue-100 active:scale-95 text-blue-600 rounded-lg border border-blue-200/60 transition cursor-pointer flex items-center justify-center shadow-2xs"
                               title="Haydovchiga qo'ng'iroq qilish"
                             >
