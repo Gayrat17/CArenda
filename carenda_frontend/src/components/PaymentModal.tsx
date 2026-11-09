@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { X, DollarSign, CheckCircle2, Calendar, AlertTriangle, MessageSquare, Clock } from "lucide-react";
+import { X, DollarSign, CheckCircle2, Calendar, AlertTriangle, Clock } from "lucide-react";
 import { recordPayment, postponePayment } from "@/lib/api";
 import { formatUSD, formatMoneyInput, parseMoneyValue } from "@/lib/utils";
 
@@ -134,19 +134,6 @@ export function PaymentModal({ payment, onClose, onSuccess }: PaymentModalProps)
               <span className="text-slate-700">Qolgan summa:</span>
               <span className="text-rose-600 text-sm">{formatUSD(payment.remaining_amount)}</span>
             </div>
-            {payment.comment && (
-              <div className="pt-2 border-t border-slate-200/80 mt-1">
-                <div className="flex items-start gap-1.5 p-2 bg-amber-50/80 border border-amber-200/60 rounded-lg text-amber-900 text-xs">
-                  <MessageSquare className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
-                  <div className="min-w-0 flex-1">
-                    <span className="font-semibold text-[10px] text-amber-700 uppercase tracking-wide block">
-                      Mavjud izoh:
-                    </span>
-                    <span className="text-xs break-words leading-tight">{payment.comment}</span>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Amount input */}
@@ -188,16 +175,15 @@ export function PaymentModal({ payment, onClose, onSuccess }: PaymentModalProps)
 
           {/* Comment */}
           <div>
-            <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 mb-1.5">
-              <MessageSquare className="w-3.5 h-3.5 text-slate-500" />
-              <span>To&apos;lov izohi (ixtiyoriy)</span>
+            <label className="block text-xs font-medium text-slate-700 mb-1.5">
+              Izoh
             </label>
-            <textarea
-              rows={2}
+            <input
+              type="text"
               value={comment}
               onChange={(e) => setComment(e.target.value)}
-              placeholder="Masalan: Naqd berildi, karta orqali o'tkazildi, 50$ qarz qoldi..."
-              className="w-full px-3.5 py-2.5 text-sm bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 resize-none placeholder:text-slate-400 leading-snug"
+              placeholder="Masalan: Naqd berildi / Karta orqali"
+              className="w-full px-3.5 py-2.5 text-sm bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 placeholder:text-slate-400"
             />
           </div>
 
