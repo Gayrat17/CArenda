@@ -1,5 +1,7 @@
+import re
 from decimal import Decimal
 
+from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Count, Prefetch, Q, Sum
@@ -11,7 +13,10 @@ from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.fleet.excel import generate_tenant_excel_report
+from apps.fleet.excel import (
+    generate_single_contract_excel_report,
+    generate_tenant_excel_report,
+)
 from apps.fleet.models import Car, Contract, Driver, Payment, normalize_phone
 from apps.fleet.serializers import (
     CalculateContractSerializer,
@@ -655,6 +660,67 @@ class ExportExcelAPIView(APIView):
             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
         response["Content-Disposition"] = 'attachment; filename="carenda_hisobot.xlsx"'
+        return response
+
+
+class ContractExcelExportAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsArendator]
+
+    def get(self, request, pk):
+        role = (getattr(request.user, "role", "") or "").lower()
+        if role not in (User.RoleChoices.ARENDATOR, "owner", User.RoleChoices.SUPERADMIN):
+            return Response(
+                {"detail": "Ushbu amalni bajarish uchun sizda arendator huquqi yo'q."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        owner = request.user.tenant_owner
+        contract = get_object_or_404(
+            Contract.objects.select_related("car", "driver").prefetch_related("payments"),
+            pk=pk,
+            owner=owner,
+        )
+
+        excel_bytes = generate_single_contract_excel_report(contract)
+        clean_plate = re.sub(r"\s+", "", contract.car.plate_number)
+        filename = f"shartnoma_{clean_plate}_{contract.id}.xlsx"
+
+        send_to_bot = request.query_params.get("send_to_bot") in ("1", "true", "True")
+        if send_to_bot and request.user.telegram_id:
+            bot_token = getattr(settings, "TELEGRAM_BOT_TOKEN", None)
+            if bot_token and bot_token != "dev_bot_token_123456":
+                try:
+                    import asyncio
+                    from aiogram import Bot
+                    from aiogram.types import BufferedInputFile
+
+                    async def _send_doc():
+                        bot = Bot(token=bot_token)
+                        try:
+                            doc = BufferedInputFile(excel_bytes, filename=filename)
+                            caption = (
+                                f"📄 <b>Shartnoma hisoboti:</b> {contract.car.name} ({contract.car.plate_number})\n"
+                                f"👤 Mijoz: {contract.driver.full_name}"
+                            )
+                            await bot.send_document(
+                                chat_id=request.user.telegram_id,
+                                document=doc,
+                                caption=caption,
+                                parse_mode="HTML",
+                            )
+                        finally:
+                            await bot.session.close()
+
+                    asyncio.run(_send_doc())
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning("Failed to send contract excel to bot: %s", e)
+
+        response = HttpResponse(
+            excel_bytes,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
         return response
 
 

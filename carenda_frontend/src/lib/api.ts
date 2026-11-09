@@ -444,6 +444,40 @@ export async function downloadExcelReport(): Promise<void> {
   window.URL.revokeObjectURL(downloadUrl);
 }
 
+export async function downloadSingleContractExcel(
+  contractId: number,
+  filename?: string
+): Promise<void> {
+  const cleanEndpoint = `/contracts/${contractId}/export/excel/`;
+  const url = `${API_BASE_URL}${cleanEndpoint}`;
+
+  let initData = "";
+  if (typeof window !== "undefined") {
+    initData = window.Telegram?.WebApp?.initData?.trim() || "";
+  }
+  const authHeaderValue = initData ? `tma ${initData}` : "tma dev";
+
+  const response = await fetch(url, {
+    headers: {
+      Authorization: authHeaderValue,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error("Shartnoma Excel hisobotini yuklab olishda xatolik yuz berdi.");
+  }
+
+  const blob = await response.blob();
+  const downloadUrl = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = downloadUrl;
+  a.download = filename || `shartnoma_${contractId}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  window.URL.revokeObjectURL(downloadUrl);
+}
+
 // User (Driver) Schedule API
 export async function getUserSchedule(options?: { forceRefresh?: boolean }): Promise<import("@/types/fleet").UserScheduleContract[]> {
   return apiFetch<import("@/types/fleet").UserScheduleContract[]>("/my-schedule/", options);

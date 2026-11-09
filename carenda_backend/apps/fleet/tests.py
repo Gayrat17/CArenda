@@ -1,5 +1,7 @@
 from datetime import date, timedelta
 from decimal import Decimal
+import io
+import openpyxl
 
 from django.contrib.admin.sites import site
 from django.core.exceptions import ValidationError
@@ -1483,6 +1485,218 @@ class PaymentRecordingAndPostponeTests(TestCase):
             format="json",
         )
         self.assertEqual(res_cross.status_code, 404)
+
+
+class SingleContractExcelExportTests(TestCase):
+    def setUp(self):
+        # Tenant A
+        self.owner_a = User.objects.create_user(
+            username="owner_a",
+            password="pass123ownerA",
+            role=User.RoleChoices.ARENDATOR,
+            full_name="Arendator A",
+            phone="+998901111111",
+            telegram_id=71111111,
+            cars_limit=10,
+            expires_at=timezone.now() + timedelta(days=60),
+        )
+        self.car_a = Car.objects.create(
+            owner=self.owner_a,
+            name="Chevrolet Malibu",
+            plate_number="01 A 777 AA",
+            year=2023,
+            notes="Ideal holatda",
+            default_price=Decimal("25000.00"),
+            status=Car.Status.AVAILABLE,
+        )
+        self.driver_a = Driver.objects.create(
+            owner=self.owner_a,
+            full_name="Anvar Aliyev",
+            phone="+998901234567",
+            secondary_phone="+998939876543",
+        )
+        self.contract_a = create_contract_service(
+            owner=self.owner_a,
+            car=self.car_a,
+            driver=self.driver_a,
+            car_price=Decimal("24000.00"),
+            initial_payment=Decimal("4000.00"),
+            annual_percent=Decimal("15.00"),
+            months_count=6,
+            payment_day=15,
+            start_date=date(2026, 3, 1),
+        )
+
+        # Tenant B
+        self.owner_b = User.objects.create_user(
+            username="owner_b",
+            password="pass123ownerB",
+            role=User.RoleChoices.ARENDATOR,
+            full_name="Arendator B",
+            phone="+998902222222",
+            telegram_id=72222222,
+            cars_limit=10,
+            expires_at=timezone.now() + timedelta(days=60),
+        )
+        self.car_b = Car.objects.create(
+            owner=self.owner_b,
+            name="Kia K5",
+            plate_number="01 B 888 BB",
+            default_price=Decimal("22000.00"),
+            status=Car.Status.AVAILABLE,
+        )
+        self.driver_b = Driver.objects.create(
+            owner=self.owner_b,
+            full_name="Bekzod Boboev",
+            phone="+998907654321",
+        )
+        self.contract_b = create_contract_service(
+            owner=self.owner_b,
+            car=self.car_b,
+            driver=self.driver_b,
+            car_price=Decimal("22000.00"),
+            initial_payment=Decimal("2000.00"),
+            annual_percent=Decimal("18.00"),
+            months_count=12,
+            payment_day=20,
+            start_date=date(2026, 3, 1),
+        )
+
+        # Driver user
+        self.driver_user = User.objects.create_user(
+            username="driver_user",
+            password="pass123driver",
+            role=User.RoleChoices.USER,
+            parent_owner=self.owner_a,
+            full_name="Driver User",
+            phone="+998901234567",
+        )
+
+        self.client_a = APIClient()
+        self.client_a.force_authenticate(user=self.owner_a)
+
+        self.client_b = APIClient()
+        self.client_b.force_authenticate(user=self.owner_b)
+
+        self.client_driver = APIClient()
+        self.client_driver.force_authenticate(user=self.driver_user)
+
+    def test_single_contract_excel_export_success(self):
+        # Pay the first month of contract A to have different statuses
+        p1 = self.contract_a.payments.order_by("month_number").first()
+        record_payment_service(
+            owner=self.owner_a,
+            payment=p1,
+            amount=p1.expected_amount,
+            comment="Birinchi oy to'landi",
+        )
+
+        res = self.client_a.get(f"/api/v1/contracts/{self.contract_a.id}/export/excel/")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(
+            res["Content-Type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        self.assertIn(
+            f'attachment; filename="shartnoma_01A777AA_{self.contract_a.id}.xlsx"',
+            res["Content-Disposition"],
+        )
+
+        # Load and verify Excel contents
+        wb = openpyxl.load_workbook(io.BytesIO(res.content))
+        self.assertIn("Shartnoma va To'lovlar", wb.sheetnames)
+        ws = wb["Shartnoma va To'lovlar"]
+
+        # Check Row 1 Title
+        self.assertEqual(ws["A1"].value, "SHARTNOMA BO'YICHA HISOBOT")
+
+        # Check Car Info (Row 3)
+        self.assertEqual(ws["A3"].value, "Mashina:")
+        self.assertIn("Chevrolet Malibu", str(ws["B3"].value))
+        self.assertIn("01 A 777 AA", str(ws["B3"].value))
+        self.assertIn("2023-yil", str(ws["B3"].value))
+        self.assertIn("Ideal holatda", str(ws["B3"].value))
+
+        # Check Driver Info (Row 4)
+        self.assertEqual(ws["A4"].value, "Mijoz / Haydovchi:")
+        self.assertIn("Anvar Aliyev", str(ws["B4"].value))
+        self.assertIn("+998901234567", str(ws["B4"].value))
+        self.assertIn("+998939876543", str(ws["B4"].value))
+
+        # Check Duration (Row 5)
+        self.assertIn("6 oy", str(ws["B5"].value))
+        self.assertIn("15-sanasida", str(ws["B5"].value))
+
+        # Check Financial values (Rows 7-12)
+        self.assertEqual(float(ws["B7"].value), float(self.contract_a.car_price))
+        self.assertEqual(float(ws["B8"].value), float(self.contract_a.initial_payment))
+        self.assertEqual(float(ws["B9"].value), float(self.contract_a.principal_amount))
+        self.assertEqual(str(ws["B10"].value), f"{self.contract_a.annual_percent}%")
+        self.assertEqual(float(ws["B11"].value), float(self.contract_a.total_amount))
+        self.assertEqual(float(ws["B12"].value), float(self.contract_a.monthly_amount))
+
+        # Check Table Headers (Row 14)
+        headers = [ws.cell(row=14, column=col).value for col in range(1, 9)]
+        self.assertEqual(
+            headers,
+            [
+                "Oy (#)",
+                "To'lov sanasi",
+                "Kutilgan summa ($)",
+                "To'langan summa ($)",
+                "Qolgan qarz ($)",
+                "Holati",
+                "To'langan vaqti",
+                "Izoh",
+            ],
+        )
+
+        # Check Payment rows (Rows 15 to 20 for 6 months)
+        self.assertEqual(ws["A15"].value, "1-oy")
+        self.assertEqual(ws["F15"].value, "To'langan")
+        self.assertEqual(ws["H15"].value, "Birinchi oy to'landi")
+
+        self.assertEqual(ws["A16"].value, "2-oy")
+        self.assertEqual(ws["F16"].value, "Kutilmoqda")
+
+        self.assertEqual(ws["A20"].value, "6-oy")
+
+        # Check Totals row (Row 21)
+        self.assertEqual(ws["A21"].value, "JAMI")
+        expected_total = sum(float(p.expected_amount) for p in self.contract_a.payments.all())
+        self.assertAlmostEqual(float(ws["C21"].value), expected_total, places=2)
+
+        # Ensure NO data from Contract B is present
+        all_text = " ".join(str(cell.value) for row in ws.iter_rows() for cell in row if cell.value)
+        self.assertNotIn("Kia K5", all_text)
+        self.assertNotIn("01 B 888 BB", all_text)
+        self.assertNotIn("Bekzod Boboev", all_text)
+
+    def test_tenant_isolation_returns_404_for_another_tenant_contract(self):
+        # Tenant B attempts to export Tenant A's contract
+        res = self.client_b.get(f"/api/v1/contracts/{self.contract_a.id}/export/excel/")
+        self.assertEqual(res.status_code, 404)
+
+        # Tenant A attempts to export Tenant B's contract
+        res = self.client_a.get(f"/api/v1/contracts/{self.contract_b.id}/export/excel/")
+        self.assertEqual(res.status_code, 404)
+
+    def test_driver_role_user_forbidden(self):
+        res = self.client_driver.get(f"/api/v1/contracts/{self.contract_a.id}/export/excel/")
+        self.assertEqual(res.status_code, 403)
+
+    def test_send_to_bot_query_param(self):
+        res = self.client_a.get(f"/api/v1/contracts/{self.contract_a.id}/export/excel/?send_to_bot=1")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(
+            res["Content-Type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+    def test_non_existent_contract_returns_404(self):
+        res = self.client_a.get("/api/v1/contracts/999999/export/excel/")
+        self.assertEqual(res.status_code, 404)
+
 
 
 

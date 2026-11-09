@@ -7,6 +7,7 @@ from apps.fleet.views import (
     ContractCalculateAPIView,
     ContractCloseAPIView,
     ContractDetailAPIView,
+    ContractExcelExportAPIView,
     ContractListCreateAPIView,
     DashboardAPIView,
     DriverDetailAPIView,
@@ -41,6 +42,7 @@ urlpatterns = [
     path("contracts/", ContractListCreateAPIView.as_view(), name="fleet-contracts-list-create"),
     path("contracts/<int:pk>/", ContractDetailAPIView.as_view(), name="fleet-contract-detail"),
     path("contracts/<int:pk>/close/", ContractCloseAPIView.as_view(), name="fleet-contract-close"),
+    path("contracts/<int:pk>/export/excel/", ContractExcelExportAPIView.as_view(), name="fleet-contract-export-excel"),
 
     # Payments
     path("payments/overdue/", OverduePaymentsAPIView.as_view(), name="fleet-payments-overdue"),

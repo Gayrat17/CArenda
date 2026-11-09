@@ -11,8 +11,9 @@ import {
   Clock,
   ArrowLeft,
   User,
+  FileSpreadsheet,
 } from "lucide-react";
-import { getCarDetail, updateCar } from "@/lib/api";
+import { downloadSingleContractExcel, getCarDetail, updateCar } from "@/lib/api";
 import { CarDetail, Payment } from "@/types/fleet";
 import {
   formatDate,
@@ -44,6 +45,7 @@ export function CarDetailModal({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [closeModalOpen, setCloseModalOpen] = useState(false);
+  const [downloadingExcel, setDownloadingExcel] = useState(false);
 
   const fetchDetail = async () => {
     if (!carId) return;
@@ -93,6 +95,22 @@ export function CarDetailModal({
   };
 
   const activeContract = car?.active_contract;
+
+  const handleDownloadContractExcel = async () => {
+    if (!activeContract) return;
+    try {
+      setDownloadingExcel(true);
+      const cleanPlate = (car?.plate_number || "").replace(/\s+/g, "");
+      const suggestedName = cleanPlate
+        ? `shartnoma_${cleanPlate}_${activeContract.id}.xlsx`
+        : `shartnoma_${activeContract.id}.xlsx`;
+      await downloadSingleContractExcel(activeContract.id, suggestedName);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Excel hisobotini yuklab olishda xatolik yuz berdi.");
+    } finally {
+      setDownloadingExcel(false);
+    }
+  };
 
   // Compute status info based on contract status and payment overdue
   const isOverdue = Boolean(
@@ -335,6 +353,16 @@ export function CarDetailModal({
                       <span className="text-blue-700">{formatUSD(activeContract.monthly_amount)} / oy</span>
                     </div>
                   </div>
+
+                  {/* Single Contract Excel Export Button */}
+                  <button
+                    onClick={handleDownloadContractExcel}
+                    disabled={downloadingExcel}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/80 rounded-2xl text-xs font-semibold transition disabled:opacity-50 cursor-pointer shadow-2xs"
+                  >
+                    <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                    {downloadingExcel ? "⏳ Yuklanmoqda..." : "📥 Shartnoma Excel (.xlsx) yuklab olish"}
+                  </button>
 
                   {/* Payment Schedule - Full list without nested max-h scroll */}
                   <div className="space-y-2.5 pt-1">
