@@ -42,21 +42,9 @@ from apps.fleet.services import (
     postpone_contract_payments_service,
     record_payment_service,
 )
+from apps.fleet.permissions import IsArendator, IsIjarachi, IsOnboarded
 from apps.users.models import User, UserSetting
 from apps.users.serializers import UserMeSerializer
-
-
-class IsArendator(BasePermission):
-    """Allows access only to Arendator owners or superadmins (blocks user drivers)."""
-    message = "Ushbu amalni bajarish uchun sizda arendator huquqi yo'q."
-
-    def has_permission(self, request, view):
-        role = (getattr(request.user, "role", "") or "").lower()
-        return bool(
-            request.user
-            and request.user.is_authenticated
-            and role in (User.RoleChoices.ARENDATOR, "owner", User.RoleChoices.SUPERADMIN)
-        )
 
 
 def get_dashboard_data_for_owner(owner, today=None):
@@ -285,10 +273,15 @@ def get_user_schedule_data(user):
         .select_related("owner")
         .first()
     )
-    if not driver and user.phone:
-        normalized_user_phone = normalize_phone(user.phone)
+    user_phone = getattr(user, "phone_number", None) or getattr(user, "phone", None)
+    if not driver and user_phone:
+        normalized_user_phone = normalize_phone(user_phone)
         if normalized_user_phone:
-            drivers_qs = Driver.objects.filter(owner_id=user.parent_owner_id or 0)
+            owner_id = getattr(user, "linked_arendator_id", None) or getattr(user, "parent_owner_id", None)
+            if owner_id:
+                drivers_qs = Driver.objects.filter(owner_id=owner_id)
+            else:
+                drivers_qs = Driver.objects.all()
             for d in drivers_qs:
                 norm_phones = [normalize_phone(p) for p in d.all_phones]
                 if normalized_user_phone in norm_phones:
@@ -341,6 +334,7 @@ def get_user_schedule_data(user):
         results.append(
             {
                 "id": c.id,
+                "invite_code": c.invite_code or "",
                 "is_active": c.is_active,
                 "driver_name": driver.full_name,
                 "driver_phone": driver.phone,
@@ -910,9 +904,9 @@ class ContractExcelExportAPIView(APIView):
 
 class UserScheduleAPIView(APIView):
     """
-    Read-only endpoint for User (Driver) users to see their leased car contracts and payment schedules.
+    Read-only endpoint for User/Ijarachi clients to see their leased car contracts and payment schedules.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsIjarachi]
 
     def get(self, request):
         results = get_user_schedule_data(request.user)

@@ -75,6 +75,7 @@ class ContractSummarySerializer(serializers.ModelSerializer):
         model = Contract
         fields = [
             "id",
+            "invite_code",
             "car",
             "car_name",
             "plate_number",

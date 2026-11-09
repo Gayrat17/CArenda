@@ -154,9 +154,15 @@ def get_existing_user(user_or_id) -> User | None:
 def find_owner_by_code(code: str) -> User | None:
     if not code:
         return None
+    clean = code.strip().upper()
+    from apps.fleet.models import Contract
+    from django.db.models import Q
+    contract = Contract.objects.filter(invite_code__iexact=clean, is_active=True).select_related("owner").first()
+    if contract:
+        return contract.owner
     return User.objects.filter(
+        Q(tenant_code__iexact=clean) | Q(invite_code__iexact=clean),
         role=User.RoleChoices.ARENDATOR,
-        tenant_code__iexact=code.strip(),
     ).first()
 
 
@@ -185,19 +191,23 @@ def register_owner_user(from_user, phone_number: str) -> User:
             "first_name": first_name,
             "last_name": last_name,
             "phone": cleaned_phone,
+            "phone_number": cleaned_phone,
             "role": User.RoleChoices.ARENDATOR,
             "plan": User.Plan.FREE,
             "cars_limit": sub_settings.free_max_contracts,
             "is_registered": True,
+            "is_onboarded": True,
             "trial_ends_at": trial_end,
             "expires_at": trial_end,
         },
     )
 
     user.phone = cleaned_phone
+    user.phone_number = cleaned_phone
     user.role = User.RoleChoices.ARENDATOR
     user.is_registered = True
-    fields = ["phone", "role", "is_registered"]
+    user.is_onboarded = True
+    fields = ["phone", "phone_number", "role", "is_registered", "is_onboarded"]
     if full_name and user.full_name != full_name:
         user.full_name = full_name
         fields.append("full_name")
@@ -254,17 +264,23 @@ def match_and_register_user_driver(
             "first_name": first_name,
             "last_name": last_name,
             "phone": cleaned_phone,
+            "phone_number": cleaned_phone,
             "role": User.RoleChoices.USER,
             "parent_owner_id": target_owner_id,
+            "linked_arendator_id": target_owner_id,
             "is_registered": True,
+            "is_onboarded": True,
         },
     )
 
     user.phone = cleaned_phone
+    user.phone_number = cleaned_phone
     user.role = User.RoleChoices.USER
     user.parent_owner_id = target_owner_id
+    user.linked_arendator_id = target_owner_id
     user.is_registered = True
-    fields = ["phone", "role", "parent_owner_id", "is_registered"]
+    user.is_onboarded = True
+    fields = ["phone", "phone_number", "role", "parent_owner_id", "linked_arendator_id", "is_registered", "is_onboarded"]
     if full_name and user.full_name != full_name:
         user.full_name = full_name
         fields.append("full_name")
@@ -278,6 +294,12 @@ def match_and_register_user_driver(
         if not User.objects.filter(username=from_user.username).exclude(pk=user.pk).exists():
             user.username = from_user.username
             fields.append("username")
+    user.save(update_fields=fields)
+
+    matched_driver.user = user
+    matched_driver.save(update_fields=["user"])
+
+    return user, matched_driver.full_name
     user.save(update_fields=fields)
 
     matched_driver.user = user

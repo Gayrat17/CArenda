@@ -16,6 +16,9 @@ import {
   Lock,
   Plus,
   Pencil,
+  Copy,
+  Check,
+  Key,
 } from "lucide-react";
 import { downloadSingleContractExcel, getCarDetail, updateCar, updateDriver } from "@/lib/api";
 import { CarDetail, Payment } from "@/types/fleet";
@@ -56,6 +59,7 @@ export function CarDetailModal({
   const [editingSecondaryPhone, setEditingSecondaryPhone] = useState(false);
   const [secondaryPhoneInput, setSecondaryPhoneInput] = useState("");
   const [savingSecondaryPhone, setSavingSecondaryPhone] = useState(false);
+  const [copiedInviteCode, setCopiedInviteCode] = useState(false);
 
   const handleSaveSecondaryPhone = async () => {
     if (!activeContract?.driver) return;
@@ -426,6 +430,44 @@ export function CarDetailModal({
                               </button>
                             </div>
                           </div>
+                        </div>
+                      )}
+
+                      {/* Contract Invite Code for Client */}
+                      {activeContract.invite_code && (
+                        <div className="flex items-center justify-between bg-white px-3 py-2 rounded-xl border border-blue-100 shadow-2xs">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <Key className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                            <div className="min-w-0">
+                              <span className="text-[10px] text-slate-400 block font-medium">Mijoz uchun maxsus kod</span>
+                              <span className="text-xs font-mono font-extrabold text-blue-700 tracking-wider">
+                                {activeContract.invite_code}
+                              </span>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (activeContract.invite_code) {
+                                navigator.clipboard.writeText(activeContract.invite_code);
+                                setCopiedInviteCode(true);
+                                setTimeout(() => setCopiedInviteCode(false), 2000);
+                              }
+                            }}
+                            className="flex items-center gap-1 px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 text-[11px] font-semibold rounded-lg transition active:scale-95 cursor-pointer shrink-0"
+                          >
+                            {copiedInviteCode ? (
+                              <>
+                                <Check className="w-3 h-3 text-emerald-600" />
+                                <span className="text-emerald-700">Nusxalandi</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="w-3 h-3" />
+                                <span>Nusxalash</span>
+                              </>
+                            )}
+                          </button>
                         </div>
                       )}
                     </div>

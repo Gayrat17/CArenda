@@ -76,6 +76,9 @@ class TelegramWebAppAuthentication(BaseAuthentication):
                 "plan": User.Plan.TRIAL,
                 "cars_limit": 10,
                 "is_registered": True,
+                "is_onboarded": True,
+                "phone": "+998901234567",
+                "phone_number": "+998901234567",
                 "expires_at": timezone.now() + timedelta(days=365),
             },
         )
@@ -87,8 +90,15 @@ class TelegramWebAppAuthentication(BaseAuthentication):
             if user.username != username:
                 user.username = username
                 updated = True
+            if not user.is_onboarded:
+                user.is_onboarded = True
+                updated = True
+            if not user.phone:
+                user.phone = "+998901234567"
+                user.phone_number = "+998901234567"
+                updated = True
             if updated:
-                user.save(update_fields=["full_name", "username"])
+                user.save(update_fields=["full_name", "username", "is_onboarded", "phone", "phone_number"])
 
         UserSetting.objects.get_or_create(owner=user)
         user = User.objects.select_related("settings", "parent_owner").get(pk=user.pk)

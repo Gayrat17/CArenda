@@ -584,4 +584,23 @@ export async function getMySubscriptionStatus(options?: { forceRefresh?: boolean
 
 export const getSubscriptionStatus = getMySubscriptionStatus;
 
+// Auth & Onboarding APIs
+export async function verifyInviteCode(code: string): Promise<import("@/types/fleet").VerifyInviteCodeResponse> {
+  return apiFetch<import("@/types/fleet").VerifyInviteCodeResponse>("/auth/verify-code/", {
+    method: "POST",
+    body: JSON.stringify({ code: code.trim().toUpperCase() }),
+  });
+}
+
+export async function completeOnboarding(
+  payload: import("@/types/fleet").CompleteOnboardingPayload
+): Promise<import("@/types/fleet").MeResponse> {
+  const result = await apiFetch<import("@/types/fleet").MeResponse>("/auth/complete-onboarding/", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  clearApiCache();
+  return result;
+}
+
 

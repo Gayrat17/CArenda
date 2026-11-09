@@ -61,6 +61,11 @@ def send_payment_receipt_notification_task(payment_id: int, amount_paid: str) ->
     if not driver_user or not driver_user.telegram_id:
         return False
 
+    # Only send receipt notification if driver has completed full onboarding and has phone
+    if not getattr(driver_user, "is_onboarded", False) or not (getattr(driver_user, "phone_number", None) or getattr(driver_user, "phone", None)):
+        logger.info(f"Driver user {driver_user.id} has not completed onboarding; skipping receipt alert.")
+        return False
+
     bot_token = getattr(settings, "TELEGRAM_BOT_TOKEN", None)
     if not bot_token or bot_token == "dev_bot_token_123456":
         return False

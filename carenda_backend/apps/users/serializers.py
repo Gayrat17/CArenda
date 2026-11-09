@@ -6,7 +6,11 @@ from apps.users.models import PaymentSettings, SubscriptionRequest, User, UserSe
 class UserMeSerializer(serializers.ModelSerializer):
     role = serializers.CharField()
     tenant_code = serializers.CharField(read_only=True)
+    invite_code = serializers.CharField(read_only=True)
     is_registered = serializers.BooleanField(read_only=True)
+    is_onboarded = serializers.BooleanField(read_only=True)
+    phone_number = serializers.CharField(read_only=True)
+    linked_arendator = serializers.PrimaryKeyRelatedField(read_only=True)
     username = serializers.SerializerMethodField()
     parent_owner = serializers.PrimaryKeyRelatedField(read_only=True)
     parent_owner_name = serializers.SerializerMethodField()
@@ -30,11 +34,15 @@ class UserMeSerializer(serializers.ModelSerializer):
             "username",
             "full_name",
             "phone",
+            "phone_number",
             "role",
             "tenant_code",
+            "invite_code",
             "is_registered",
+            "is_onboarded",
             "parent_owner",
             "parent_owner_name",
+            "linked_arendator",
             "driver_id",
             "plan",
             "cars_limit",

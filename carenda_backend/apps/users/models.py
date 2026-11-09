@@ -33,6 +33,7 @@ class User(AbstractUser):
     class RoleChoices(models.TextChoices):
         SUPERADMIN = "superadmin", "Super Admin"
         ARENDATOR = "arendator", "Arendator"
+        IJARACHI = "ijarachi", "Ijarachi (Mijoz)"
         USER = "user", "Foydalanuvchi (Ijarachi)"
 
     RoleChoices.OWNER = RoleChoices.ARENDATOR
@@ -52,6 +53,15 @@ class User(AbstractUser):
         help_text="If role is user (driver), points to the Arendator owner",
         verbose_name="Arendator rahbari",
     )
+    linked_arendator = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ijarachilar",
+        help_text="Points to the linked Arendator if role is ijarachi/client",
+        verbose_name="Bog'langan Arendator",
+    )
     tenant_code = models.CharField(
         max_length=12,
         unique=True,
@@ -61,10 +71,25 @@ class User(AbstractUser):
         help_text="Unique code for Arendator, e.g. AR-4829",
         verbose_name="Arendator maxsus kodi",
     )
+    invite_code = models.CharField(
+        max_length=12,
+        unique=True,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Unique invite code for Arendator",
+        verbose_name="Arendator taklif kodi",
+    )
     is_registered = models.BooleanField(
         default=False,
         verbose_name="Ro'yxatdan o'tgan",
         help_text="True only after phone verification in Telegram Bot",
+    )
+    is_onboarded = models.BooleanField(
+        default=False,
+        db_index=True,
+        verbose_name="Onboarding yakunlangan",
+        help_text="True faqat rol tanlanib, telefon tasdiqlangandan so'ng",
     )
     is_frozen = models.BooleanField(
         default=False,
@@ -87,6 +112,12 @@ class User(AbstractUser):
         max_length=25,
         blank=True,
         verbose_name="Phone Number",
+    )
+    phone_number = models.CharField(
+        max_length=25,
+        blank=True,
+        default="",
+        verbose_name="Telefon raqam",
     )
     plan = models.CharField(
         max_length=20,
@@ -124,16 +155,35 @@ class User(AbstractUser):
     def save(self, *args, **kwargs):
         if self.role:
             self.role = self.role.lower()
-        # Auto-generate unique tenant_code ONLY for arendator if not set
-        if self.role == self.RoleChoices.ARENDATOR and not self.tenant_code:
-            while True:
-                suffix = "".join(random.choices(string.ascii_uppercase + string.digits, k=4))
-                code = f"AR-{suffix}"
-                if not User.objects.filter(tenant_code=code).exclude(pk=self.pk).exists():
-                    self.tenant_code = code
-                    break
-        elif self.role != self.RoleChoices.ARENDATOR and self.tenant_code:
+        # Auto-generate unique tenant_code / invite_code ONLY for arendator if not set
+        if self.role == self.RoleChoices.ARENDATOR:
+            if not self.tenant_code:
+                while True:
+                    suffix = "".join(random.choices(string.ascii_uppercase + string.digits, k=4))
+                    code = f"AR-{suffix}"
+                    if not User.objects.filter(tenant_code=code).exclude(pk=self.pk).exists():
+                        self.tenant_code = code
+                        break
+            if not self.invite_code:
+                self.invite_code = self.tenant_code
+        elif self.role not in (self.RoleChoices.ARENDATOR, "owner") and self.tenant_code:
             self.tenant_code = None
+            self.invite_code = None
+
+        # Keep phone and phone_number in sync
+        if self.phone and not self.phone_number:
+            self.phone_number = self.phone
+        elif self.phone_number and not self.phone:
+            self.phone = self.phone_number
+
+        # Keep is_registered and is_onboarded in sync
+        if self.is_registered and not self.is_onboarded and (self.phone or self.phone_number):
+            self.is_onboarded = True
+        elif self.is_onboarded and not self.is_registered:
+            self.is_registered = True
+        if self.is_superuser or self.role == self.RoleChoices.SUPERADMIN:
+            self.is_onboarded = True
+            self.is_registered = True
 
         # Free tier trial period calculation (60 days)
         if not self.trial_ends_at:
@@ -157,11 +207,11 @@ class User(AbstractUser):
     def tenant_owner(self):
         """
         Returns the tenant owner for row-level multi-tenancy.
-        If user is a user (driver) with parent_owner, returns parent_owner.
+        If user is an ijarachi/driver with parent_owner or linked_arendator, returns that arendator.
         Otherwise, returns self.
         """
-        if self.role == self.RoleChoices.USER and self.parent_owner:
-            return self.parent_owner
+        if self.role in (self.RoleChoices.USER, self.RoleChoices.IJARACHI):
+            return self.linked_arendator or self.parent_owner or self
         return self
 
     @property
@@ -177,8 +227,12 @@ class User(AbstractUser):
         return self.is_arendator
 
     @property
+    def is_ijarachi(self) -> bool:
+        return bool(self.role in (self.RoleChoices.IJARACHI, self.RoleChoices.USER))
+
+    @property
     def is_user(self) -> bool:
-        return bool(self.role == self.RoleChoices.USER)
+        return bool(self.role in (self.RoleChoices.USER, self.RoleChoices.IJARACHI))
 
     @property
     def is_subscription_active(self) -> bool:

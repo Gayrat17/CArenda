@@ -47,6 +47,14 @@ export default function SubscriptionPage() {
       ]);
 
       if (boot?.me) {
+        if (!boot.me.is_onboarded && boot.me.is_registered === false) {
+          router.replace("/login");
+          return;
+        }
+        if (boot.me.role === "ijarachi" || boot.me.role === "user") {
+          router.replace("/my-contracts");
+          return;
+        }
         setUser(boot.me);
       }
       if (statusData) {

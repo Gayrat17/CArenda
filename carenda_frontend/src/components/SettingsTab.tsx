@@ -277,11 +277,11 @@ export function SettingsTab({ user, onRefreshUser }: SettingsTabProps) {
       </div>
 
       {/* Tenant Code Card for Arendator */}
-      {(user?.role === "arendator" || user?.role === "owner") && user?.tenant_code && (
+      {(user?.role === "arendator" || user?.role === "owner") && (user?.invite_code || user?.tenant_code) && (
         <div className="bg-blue-50 border border-blue-200 p-4 rounded-2xl shadow-xs space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-blue-900 uppercase tracking-wide">
-              Arendator Kodingiz
+              Arendator Kodingiz (Maxsus Kod)
             </span>
             <span className="text-[10px] bg-blue-100 text-blue-800 font-semibold px-2 py-0.5 rounded-full">
               Mijozlar uchun
@@ -289,7 +289,7 @@ export function SettingsTab({ user, onRefreshUser }: SettingsTabProps) {
           </div>
           <div className="flex items-center justify-between bg-white px-3.5 py-2.5 rounded-xl border border-blue-200">
             <span className="font-mono font-extrabold text-lg tracking-wider text-blue-700">
-              {user.tenant_code}
+              {user.invite_code || user.tenant_code}
             </span>
             <button
               type="button"
@@ -301,7 +301,7 @@ export function SettingsTab({ user, onRefreshUser }: SettingsTabProps) {
             </button>
           </div>
           <p className="text-[11px] text-blue-700 leading-relaxed">
-            Mijozlaringiz (haydovchilar) botga kirganda shartnomalarini ko&apos;rish uchun ushbu kodni kiritishi lozim.
+            Mijozlaringiz (ijarachilar) tizimga kirganda shartnomalarini ko&apos;rish uchun ushbu maxsus kodni kiritishi lozim.
           </p>
         </div>
       )}

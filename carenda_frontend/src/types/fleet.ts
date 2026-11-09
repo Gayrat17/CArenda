@@ -1,5 +1,5 @@
 export type UserPlan = "free" | "standard" | "trial" | "basic" | "pro";
-export type UserRole = "superadmin" | "arendator" | "owner" | "user";
+export type UserRole = "superadmin" | "arendator" | "owner" | "user" | "ijarachi";
 
 export interface User {
   id: number;
@@ -7,11 +7,15 @@ export interface User {
   username: string | null;
   full_name: string;
   phone: string;
+  phone_number?: string;
   role: UserRole;
   tenant_code?: string | null;
+  invite_code?: string | null;
   is_registered?: boolean;
+  is_onboarded?: boolean;
   parent_owner?: number | null;
   parent_owner_name?: string | null;
+  linked_arendator?: number | null;
   driver_id?: number | null;
   plan: UserPlan;
   cars_limit: number;
@@ -24,6 +28,27 @@ export interface User {
   is_subscription_active: boolean;
   can_add_car: boolean;
   default_annual_percent: string;
+}
+
+export interface VerifyInviteCodeResponse {
+  valid: boolean;
+  type?: "contract" | "arendator";
+  code?: string;
+  contract_id?: number;
+  arendator_id?: number;
+  arendator_name?: string;
+  car_name?: string | null;
+  plate_number?: string | null;
+  driver_name?: string;
+  monthly_amount?: string;
+  detail?: string;
+}
+
+export interface CompleteOnboardingPayload {
+  role: "arendator" | "ijarachi";
+  phone_number: string;
+  invite_code?: string;
+  full_name?: string;
 }
 
 export interface ClientPaymentScheduleItem {
@@ -41,6 +66,7 @@ export interface ClientPaymentScheduleItem {
 
 export interface ClientContract {
   id: number;
+  invite_code?: string;
   is_active: boolean;
   car_name: string;
   plate_number: string;
@@ -153,6 +179,7 @@ export interface DriverCreatePayload {
 
 export interface ContractSummary {
   id: number;
+  invite_code?: string;
   car: number;
   car_name: string;
   plate_number: string;

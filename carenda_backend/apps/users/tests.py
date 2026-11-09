@@ -524,3 +524,166 @@ class SubscriptionFlowTests(TestCase):
         self.assertIn("remaining_days", stat_data)
         self.assertIn("active_contracts_count", stat_data)
 
+
+class AuthOnboardingRBACFlowTests(TestCase):
+    def setUp(self):
+        from apps.fleet.models import Car, Contract, Driver
+        self.arendator = User.objects.create_user(
+            username="test_arendator_rbac",
+            full_name="Arendator Aka",
+            phone="+998901112233",
+            phone_number="+998901112233",
+            role=User.RoleChoices.ARENDATOR,
+            is_registered=True,
+            is_onboarded=True,
+        )
+        self.car = Car.objects.create(
+            owner=self.arendator,
+            name="Chevrolet Cobalt",
+            plate_number="01A999AA",
+            default_price=Decimal("12000.00"),
+        )
+        self.driver = Driver.objects.create(
+            owner=self.arendator,
+            full_name="Haydovchi Botir",
+            phone="+998912223344",
+        )
+        self.contract = Contract.objects.create(
+            owner=self.arendator,
+            car=self.car,
+            driver=self.driver,
+            car_price=Decimal("12000.00"),
+            initial_payment=Decimal("2000.00"),
+            annual_percent=Decimal("20.00"),
+            months_count=12,
+            payment_day=15,
+            start_date="2026-03-01",
+        )
+        self.raw_user = User.objects.create_user(
+            username="tg_newbie_123",
+            telegram_id=987654321,
+            is_registered=False,
+            is_onboarded=False,
+        )
+        self.client_raw = APIClient()
+        self.client_raw.force_authenticate(user=self.raw_user)
+
+        self.client_arendator = APIClient()
+        self.client_arendator.force_authenticate(user=self.arendator)
+
+    def test_verify_code_invalid_returns_exact_uzbek_message(self):
+        res = self.client_raw.post(
+            "/api/v1/auth/verify-code/",
+            {"code": "INVALID_XYZ"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        data = res.json()
+        self.assertFalse(data.get("valid"))
+        self.assertEqual(
+            data.get("detail"),
+            "Kiritilgan maxsus kod xato! Iltimos, arendatoringizdan to'g'ri kodni so'rang.",
+        )
+
+    def test_verify_code_with_contract_and_arendator_codes(self):
+        # 1. Verify contract invite code
+        res_contract = self.client_raw.post(
+            "/api/v1/auth/verify-code/",
+            {"code": self.contract.invite_code},
+            format="json",
+        )
+        self.assertEqual(res_contract.status_code, status.HTTP_200_OK)
+        c_data = res_contract.json()
+        self.assertTrue(c_data["valid"])
+        self.assertEqual(c_data["type"], "contract")
+        self.assertEqual(c_data["car_name"], "Chevrolet Cobalt")
+        self.assertEqual(c_data["plate_number"], "01A999AA")
+
+        # 2. Verify Arendator tenant/invite code
+        res_arendator = self.client_raw.post(
+            "/api/v1/auth/verify-code/",
+            {"code": self.arendator.tenant_code},
+            format="json",
+        )
+        self.assertEqual(res_arendator.status_code, status.HTTP_200_OK)
+        a_data = res_arendator.json()
+        self.assertTrue(a_data["valid"])
+        self.assertEqual(a_data["type"], "arendator")
+        self.assertEqual(a_data["arendator_name"], "Arendator Aka")
+
+    def test_complete_onboarding_arendator(self):
+        res = self.client_raw.post(
+            "/api/v1/auth/complete-onboarding/",
+            {
+                "role": "arendator",
+                "phone_number": "+998909876543",
+                "full_name": "Yangi Arendator",
+            },
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        data = res.json()
+        self.assertEqual(data["role"], "arendator")
+        self.assertTrue(data["is_onboarded"])
+        self.assertIn("987 65 43", data["phone_number"])
+
+        self.raw_user.refresh_from_db()
+        self.assertTrue(self.raw_user.is_onboarded)
+        self.assertEqual(self.raw_user.role, User.RoleChoices.ARENDATOR)
+        self.assertTrue(bool(self.raw_user.tenant_code))
+
+    def test_complete_onboarding_ijarachi_links_contract_and_driver(self):
+        res = self.client_raw.post(
+            "/api/v1/auth/complete-onboarding/",
+            {
+                "role": "ijarachi",
+                "phone_number": "+998912223344",
+                "invite_code": self.contract.invite_code,
+                "full_name": "Haydovchi Botirjon",
+            },
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        data = res.json()
+        self.assertEqual(data["role"], "ijarachi")
+        self.assertTrue(data["is_onboarded"])
+
+        self.raw_user.refresh_from_db()
+        self.assertEqual(self.raw_user.role, User.RoleChoices.IJARACHI)
+        self.assertEqual(self.raw_user.linked_arendator, self.arendator)
+
+        # Check driver linked
+        self.driver.refresh_from_db()
+        self.assertEqual(self.driver.user, self.raw_user)
+
+    def test_strict_rbac_ijarachi_cannot_access_arendator_endpoints(self):
+        # Onboard as Ijarachi
+        self.client_raw.post(
+            "/api/v1/auth/complete-onboarding/",
+            {
+                "role": "ijarachi",
+                "phone_number": "+998912223344",
+                "invite_code": self.contract.invite_code,
+            },
+            format="json",
+        )
+
+        # 1. Accessing Arendator Dashboard must return 403 Forbidden
+        res_dash = self.client_raw.get("/api/v1/dashboard/")
+        self.assertEqual(res_dash.status_code, status.HTTP_403_FORBIDDEN)
+
+        # 2. Accessing Contracts CRUD must return 403 Forbidden
+        res_contracts = self.client_raw.get("/api/v1/contracts/")
+        self.assertEqual(res_contracts.status_code, status.HTTP_403_FORBIDDEN)
+
+        # 3. Accessing Client Portal /api/client/my-contracts/ must return 200 OK
+        res_client = self.client_raw.get("/api/v1/client/my-contracts/")
+        self.assertEqual(res_client.status_code, status.HTTP_200_OK)
+        client_data = res_client.json()
+        self.assertEqual(len(client_data), 1)
+        self.assertEqual(client_data[0]["car_name"], "Chevrolet Cobalt")
+
+        # 4. Arendator accessing /api/client/my-contracts/ must return 403 Forbidden
+        res_arendator_client = self.client_arendator.get("/api/v1/client/my-contracts/")
+        self.assertEqual(res_arendator_client.status_code, status.HTTP_403_FORBIDDEN)
+

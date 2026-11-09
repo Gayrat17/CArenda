@@ -1,9 +1,21 @@
+import random
 import re
+import string
 from decimal import Decimal
 
 from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+
+
+def generate_contract_invite_code() -> str:
+    """Generate a unique 6-character invite code for contract (e.g. CR4829)."""
+    from apps.fleet.models import Contract
+    while True:
+        suffix = "".join(random.choices(string.ascii_uppercase + string.digits, k=4))
+        code = f"CR{suffix}"
+        if not Contract.objects.filter(invite_code=code).exists():
+            return code
 
 
 def normalize_phone(phone: str) -> str:
@@ -204,6 +216,14 @@ class Contract(models.Model):
     is_active = models.BooleanField(
         default=True, db_index=True, verbose_name="Is Active"
     )
+    invite_code = models.CharField(
+        max_length=12,
+        unique=True,
+        null=True,
+        blank=True,
+        db_index=True,
+        verbose_name="Shartnoma maxsus kodi",
+    )
     closed_at = models.DateTimeField(
         null=True, blank=True, verbose_name="Closed At"
     )
@@ -238,6 +258,8 @@ class Contract(models.Model):
                 self.monthly_amount = (self.total_amount / Decimal(self.months_count)).quantize(Decimal("0.01"))
 
     def save(self, *args, **kwargs):
+        if not self.invite_code:
+            self.invite_code = generate_contract_invite_code()
         self.calculate_totals()
         super().save(*args, **kwargs)
 

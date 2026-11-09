@@ -1,5 +1,8 @@
 import asyncio
+from datetime import timedelta
 import logging
+import re
+
 from django.conf import settings
 from django.db.models import Q
 from django.utils import timezone
@@ -9,8 +12,11 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.fleet.models import Contract, Driver, normalize_phone
 from apps.fleet.services import invalidate_tenant_cache
+from apps.users.authentication import TelegramWebAppAuthentication
 from apps.users.models import PaymentSettings, SubscriptionRequest, SubscriptionSettings, User, UserSetting
+from apps.users.permissions import IsArendator, IsIjarachi, IsOnboarded
 from apps.users.serializers import (
     PaymentSettingsSerializer,
     PaymentSettingsUpdateSerializer,
@@ -23,6 +29,21 @@ from apps.users.serializers import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def format_uzbek_phone(raw_phone: str) -> str:
+    """Formats phone number into normalized +998 XX XXX XX XX representation."""
+    digits = re.sub(r"\D", "", str(raw_phone or ""))
+    if len(digits) == 9:
+        digits = "998" + digits
+    elif digits.startswith("8") and len(digits) == 10:
+        digits = "998" + digits[1:]
+    if digits.startswith("998") and len(digits) == 12:
+        return f"+{digits[:3]} {digits[3:5]} {digits[5:8]} {digits[8:10]} {digits[10:12]}"
+    if len(digits) >= 9:
+        last9 = digits[-9:]
+        return f"+998 {last9[:2]} {last9[2:5]} {last9[5:7]} {last9[7:9]}"
+    return raw_phone
 
 
 class MeAPIView(APIView):
@@ -186,7 +207,7 @@ SubscriptionSettingsAPIView = PaymentSettingsAPIView
 
 
 class SubscriptionRequestAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsArendator]
 
     def get(self, request):
         requests = SubscriptionRequest.objects.filter(user=request.user).order_by("-created_at")
@@ -239,7 +260,7 @@ class SubscriptionRequestAPIView(APIView):
 
 
 class SubscriptionStatusAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsArendator]
 
     def get(self, request):
         owner = request.user.tenant_owner
@@ -289,3 +310,209 @@ class SubscriptionStatusAPIView(APIView):
             "settings": SubscriptionSettingsSerializer(settings_obj, context={"request": request}).data,
             "pending_request": SubscriptionRequestSerializer(pending).data if pending else None,
         })
+
+
+class TelegramAuthAPIView(APIView):
+    """
+    Dedicated endpoint for Telegram Mini App authentication.
+    Returns the authenticated user's current status and onboarding state.
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        user = getattr(request, "user", None)
+        if not user or not user.is_authenticated:
+            # Try authenticating via TelegramWebAppAuthentication if init_data was supplied in body
+            init_data = request.data.get("init_data") or request.data.get("initData")
+            if init_data:
+                auth = TelegramWebAppAuthentication()
+                try:
+                    res = auth._validate_telegram_init_data(init_data)
+                    if res:
+                        user = res[0]
+                except Exception as e:
+                    return Response({"detail": str(e)}, status=status.HTTP_401_UNAUTHORIZED)
+
+        if not user or not user.is_authenticated:
+            return Response(
+                {"detail": "Avtorizatsiya amalga oshmadi. Telegram initData talab qilinadi."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        return Response(UserMeSerializer(user).data, status=status.HTTP_200_OK)
+
+
+class VerifyInviteCodeAPIView(APIView):
+    """
+    Verifies a special invite code entered by an Ijarachi/client.
+    Accepts: {"code": "CR4829"} (or {"invite_code": "..."}).
+    Returns 200 with metadata if valid, or 400 with exact Uzbek error message if invalid.
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        code = str(request.data.get("code") or request.data.get("invite_code") or "").strip().upper()
+        if not code:
+            return Response(
+                {
+                    "valid": False,
+                    "detail": "Kiritilgan maxsus kod xato! Iltimos, arendatoringizdan to'g'ri kodni so'rang.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # 1. Check Contract invite code
+        contract = (
+            Contract.objects.filter(invite_code__iexact=code, is_active=True)
+            .select_related("owner", "car", "driver")
+            .first()
+        )
+        if contract:
+            owner_name = contract.owner.full_name or contract.owner.username or "Arendator"
+            return Response(
+                {
+                    "valid": True,
+                    "type": "contract",
+                    "code": contract.invite_code,
+                    "contract_id": contract.id,
+                    "arendator_id": contract.owner.id,
+                    "arendator_name": owner_name,
+                    "car_name": contract.car.name,
+                    "plate_number": contract.car.plate_number,
+                    "driver_name": contract.driver.full_name,
+                    "monthly_amount": str(contract.monthly_amount),
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        # 2. Check Arendator user tenant/invite code
+        arendator = (
+            User.objects.filter(
+                Q(tenant_code__iexact=code) | Q(invite_code__iexact=code),
+                role=User.RoleChoices.ARENDATOR,
+            )
+            .first()
+        )
+        if arendator:
+            owner_name = arendator.full_name or arendator.username or "Arendator"
+            return Response(
+                {
+                    "valid": True,
+                    "type": "arendator",
+                    "code": arendator.invite_code or arendator.tenant_code,
+                    "arendator_id": arendator.id,
+                    "arendator_name": owner_name,
+                    "car_name": None,
+                    "plate_number": None,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        return Response(
+            {
+                "valid": False,
+                "detail": "Kiritilgan maxsus kod xato! Iltimos, arendatoringizdan to'g'ri kodni so'rang.",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+class CompleteOnboardingAPIView(APIView):
+    """
+    Completes user onboarding by setting role, saving verified phone,
+    and linking Ijarachi to their Arendator/Contract.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        role = str(request.data.get("role") or "").strip().lower()
+        if role not in (User.RoleChoices.ARENDATOR, User.RoleChoices.IJARACHI, "user", "owner"):
+            return Response(
+                {"detail": "Noto'g'ri rol tanlandi. Iltimos, 'arendator' yoki 'ijarachi' tanlang."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if role == "owner":
+            role = User.RoleChoices.ARENDATOR
+        elif role == "user":
+            role = User.RoleChoices.IJARACHI
+
+        raw_phone = str(request.data.get("phone_number") or request.data.get("phone") or "").strip()
+        digits = re.sub(r"\D", "", raw_phone)
+        if len(digits) < 9:
+            return Response(
+                {"detail": "Telefon raqami noto'g'ri. Kamida 9 ta raqam kiritilishi lozim."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        formatted_phone = format_uzbek_phone(raw_phone)
+        normalized_incoming = normalize_phone(raw_phone)
+
+        invite_code = str(request.data.get("invite_code") or request.data.get("code") or "").strip().upper()
+        full_name = str(request.data.get("full_name") or "").strip()
+
+        if role == User.RoleChoices.IJARACHI:
+            if not invite_code:
+                return Response(
+                    {"detail": "Ijarachi uchun maxsus kod kiritilishi majburiy."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Match contract or arendator
+            contract = (
+                Contract.objects.filter(invite_code__iexact=invite_code, is_active=True)
+                .select_related("owner", "driver")
+                .first()
+            )
+            matched_arendator = None
+            if contract:
+                matched_arendator = contract.owner
+                user.linked_arendator = contract.owner
+                user.parent_owner = contract.owner
+                if contract.driver:
+                    contract.driver.user = user
+                    if not contract.driver.phone:
+                        contract.driver.phone = formatted_phone
+                    contract.driver.save(update_fields=["user", "phone"])
+            else:
+                matched_arendator = (
+                    User.objects.filter(
+                        Q(tenant_code__iexact=invite_code) | Q(invite_code__iexact=invite_code),
+                        role=User.RoleChoices.ARENDATOR,
+                    )
+                    .first()
+                )
+                if not matched_arendator:
+                    return Response(
+                        {
+                            "valid": False,
+                            "detail": "Kiritilgan maxsus kod xato! Iltimos, arendatoringizdan to'g'ri kodni so'rang.",
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                user.linked_arendator = matched_arendator
+                user.parent_owner = matched_arendator
+                # Link matching driver under this arendator
+                for d in matched_arendator.drivers.all():
+                    if normalized_incoming in [normalize_phone(p) for p in d.all_phones]:
+                        d.user = user
+                        d.save(update_fields=["user"])
+                        break
+
+            user.role = User.RoleChoices.IJARACHI
+
+        else: # Arendator
+            user.role = User.RoleChoices.ARENDATOR
+            user.linked_arendator = None
+            user.parent_owner = None
+
+        user.phone = formatted_phone
+        user.phone_number = formatted_phone
+        user.is_onboarded = True
+        user.is_registered = True
+        if full_name and (not user.full_name or user.full_name.startswith("tg_")):
+            user.full_name = full_name
+
+        user.save()
+        invalidate_tenant_cache(user.tenant_owner.id, getattr(user, "telegram_id", None))
+
+        return Response(UserMeSerializer(user).data, status=status.HTTP_200_OK)

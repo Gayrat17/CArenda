@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useCallback, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { getBootstrap, getCachedBootstrapSync, getDrivers } from "@/lib/api";
 import {
   BootstrapResponse,
@@ -24,6 +25,7 @@ import { UserScheduleView } from "@/components/UserScheduleView";
 import { Phone } from "lucide-react";
 
 export function CarendaApp() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<NavTab>("dashboard");
 
   // Immediate synchronous cache hydration from memory / localStorage
@@ -96,12 +98,13 @@ export function CarendaApp() {
       const boot = await getBootstrap({ forceRefresh });
       if (boot?.me) {
         setUser(boot.me);
-        if (boot.me.role === "user") {
-          setUserSchedule(boot.user_schedule || []);
+        if (!boot.me.is_onboarded && boot.me.is_registered === false) {
+          router.replace("/login");
           setLoading(false);
           return;
         }
-        if (boot.me.is_registered === false) {
+        if (boot.me.role === "ijarachi" || boot.me.role === "user") {
+          router.replace("/my-contracts");
           setLoading(false);
           return;
         }
@@ -216,31 +219,16 @@ export function CarendaApp() {
     [dashboard?.overdue_payments]
   );
 
-  // Unregistered user check (phone verification required in Telegram Bot)
-  if (user && user.is_registered === false) {
-    return (
-      <main className="max-w-md mx-auto min-h-screen bg-slate-50 text-slate-900 p-6 flex flex-col items-center justify-center text-center">
-        <div className="w-16 h-16 bg-amber-100 text-amber-600 rounded-3xl flex items-center justify-center mb-4 shadow-xs">
-          <Phone className="w-8 h-8" />
-        </div>
-        <h2 className="text-xl font-bold text-slate-900 mb-2">
-          Ro&apos;yxatdan o&apos;tish tugallanmagan
-        </h2>
-        <p className="text-sm text-slate-600 mb-6 leading-relaxed">
-          Iltimos, Carenda tizimidan foydalanish uchun Telegram botimizda telefon raqamingizni yuboring va ro&apos;yxatdan o&apos;tishni yakunlang.
-        </p>
-        <button
-          onClick={() => {
-            if (typeof window !== "undefined" && window.Telegram?.WebApp) {
-              window.Telegram.WebApp.close?.();
-            }
-          }}
-          className="w-full py-3.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-2xl shadow-sm transition active:scale-98 cursor-pointer"
-        >
-          Telegram Botga qaytish
-        </button>
-      </main>
-    );
+  // Unregistered or not onboarded user check
+  if (user && !user.is_onboarded && user.is_registered === false) {
+    router.replace("/login");
+    return null;
+  }
+
+  // Client (Ijarachi) redirect to Client Portal
+  if (user && (user.role === "ijarachi" || user.role === "user")) {
+    router.replace("/my-contracts");
+    return null;
   }
 
   // If user is a Driver / Ijarachi, show the dedicated read-only schedule view
