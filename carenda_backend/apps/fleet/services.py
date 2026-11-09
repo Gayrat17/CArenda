@@ -267,6 +267,17 @@ def record_payment_service(
     if amount <= Decimal("0.00"):
         raise ValidationError("To'lov summasi 0 dan katta bo'lishi kerak.")
 
+    # Ensure all previous installments for this contract are paid
+    has_unpaid_prior_months = Payment.objects.filter(
+        contract=payment.contract,
+        month_number__lt=payment.month_number,
+    ).exclude(status=Payment.Status.PAID).exists()
+
+    if has_unpaid_prior_months:
+        raise ValidationError(
+            f"{payment.month_number}-oy to'lovini amalga oshirishdan oldin undan oldingi oylarning to'lovi to'liq yopilishi kerak."
+        )
+
     payment.paid_amount += amount
     if payment.paid_amount >= payment.expected_amount:
         payment.status = Payment.Status.PAID
@@ -321,6 +332,21 @@ def postpone_contract_payments_service(
     if payment.status in (Payment.Status.PAID, Payment.Status.CANCELLED):
         raise ValidationError("Faqat kutilayotgan yoki qisman to'langan to'lovlarni surish mumkin.")
 
+    if payment.is_postponed or "[1 oyga surildi]" in (payment.comment or ""):
+        raise ValidationError(
+            "Ushbu oy to'lovi allaqachon 1 marta surilgan. Har bir oy to'lovini faqat bir marta surishga ruxsat berilgan."
+        )
+
+    has_unpaid_prior_months = Payment.objects.filter(
+        contract=payment.contract,
+        month_number__lt=payment.month_number,
+    ).exclude(status=Payment.Status.PAID).exists()
+
+    if has_unpaid_prior_months:
+        raise ValidationError(
+            f"{payment.month_number}-oy to'lovini surishdan oldin undan oldingi oylarning to'lovi to'liq yopilishi kerak."
+        )
+
     payments_to_shift = list(
         Payment.objects.filter(
             contract=payment.contract,
@@ -342,13 +368,15 @@ def postpone_contract_payments_service(
     note = f"[1 oyga surildi] {clean_comment}" if clean_comment else "[1 oyga surildi]"
     for p in payments_to_shift:
         if p.id == payment.id:
+            p.is_postponed = True
             if p.comment:
                 p.comment = f"{p.comment} | {note}" if note not in p.comment else p.comment
             else:
                 p.comment = note
             payment.comment = p.comment
+            payment.is_postponed = True
 
-    Payment.objects.bulk_update(payments_to_shift, ["due_date", "comment"])
+    Payment.objects.bulk_update(payments_to_shift, ["due_date", "comment", "is_postponed"])
     invalidate_tenant_cache(owner.id, getattr(owner, "telegram_id", None))
     return payments_to_shift
 

@@ -85,6 +85,7 @@ export function CarendaApp() {
     car_name?: string;
     driver_name?: string;
     comment?: string;
+    is_postponed?: boolean;
   }
   const [activePaymentTarget, setActivePaymentTarget] = useState<PaymentTargetModal | null>(null);
 
@@ -161,6 +162,7 @@ export function CarendaApp() {
   const handleOpenOverduePayment = (item: OverduePaymentItem) => {
     setActivePaymentTarget({
       id: item.id,
+      month_number: item.month_number,
       due_date: item.due_date,
       expected_amount: item.expected_amount,
       paid_amount: item.paid_amount,
@@ -168,6 +170,7 @@ export function CarendaApp() {
       car_name: item.car_name,
       driver_name: item.driver_name,
       comment: item.comment,
+      is_postponed: item.is_postponed,
     });
   };
 
@@ -186,6 +189,7 @@ export function CarendaApp() {
       car_name: carName,
       driver_name: driverName,
       comment: payment.comment,
+      is_postponed: payment.is_postponed,
     });
   };
 

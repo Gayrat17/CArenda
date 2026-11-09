@@ -28,6 +28,7 @@ class PaymentSerializer(serializers.ModelSerializer):
     remaining_amount = serializers.DecimalField(
         max_digits=12, decimal_places=2, read_only=True
     )
+    is_postponed = serializers.SerializerMethodField()
 
     class Meta:
         model = Payment
@@ -42,6 +43,7 @@ class PaymentSerializer(serializers.ModelSerializer):
             "status",
             "paid_at",
             "comment",
+            "is_postponed",
         ]
         read_only_fields = [
             "id",
@@ -53,8 +55,11 @@ class PaymentSerializer(serializers.ModelSerializer):
             "remaining_amount",
             "status",
             "paid_at",
-            "comment",
+            "is_postponed",
         ]
+
+    def get_is_postponed(self, obj: Payment) -> bool:
+        return bool(obj.is_postponed or ("[1 oyga surildi]" in (obj.comment or "")))
 
 
 class ContractSummarySerializer(serializers.ModelSerializer):

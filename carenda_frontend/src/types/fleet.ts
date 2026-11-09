@@ -190,11 +190,13 @@ export interface Payment {
   status: PaymentStatus;
   paid_at: string | null;
   comment: string;
+  is_postponed?: boolean;
 }
 
 export interface OverduePaymentItem {
   id: number;
   contract_id: number;
+  month_number?: number;
   car_name: string;
   plate_number: string;
   driver_name: string;
@@ -205,6 +207,8 @@ export interface OverduePaymentItem {
   remaining_amount: string;
   days_overdue: number;
   comment?: string;
+  can_pay?: boolean;
+  is_postponed?: boolean;
 }
 
 export interface DashboardResponse {

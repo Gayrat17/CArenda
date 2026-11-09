@@ -286,6 +286,12 @@ class Payment(models.Model):
     comment = models.CharField(
         max_length=255, blank=True, verbose_name="Comment"
     )
+    is_postponed = models.BooleanField(
+        default=False,
+        db_index=True,
+        verbose_name="Is Postponed",
+        help_text="Har bir oy to'lovi faqat bir marta 1 oyga surilishi mumkin.",
+    )
 
     class Meta:
         ordering = ["due_date", "month_number"]

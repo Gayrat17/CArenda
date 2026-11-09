@@ -13,6 +13,7 @@ import {
   User,
   FileSpreadsheet,
   MessageSquare,
+  Lock,
 } from "lucide-react";
 import { downloadSingleContractExcel, getCarDetail, updateCar } from "@/lib/api";
 import { CarDetail, Payment } from "@/types/fleet";
@@ -378,20 +379,37 @@ export function CarDetailModal({
                       {activeContract.payments.map((p) => {
                         const pInfo = getPaymentStatusInfo(p.status);
                         const isPayable = p.status === "pending" || p.status === "partial";
+                        // A payment is locked if any prior month (strictly lower month_number) is not yet paid
+                        const hasUnpaidPriorMonth = activeContract.payments.some(
+                          (prev) => prev.month_number < p.month_number && prev.status !== "paid"
+                        );
+                        const isLocked = isPayable && hasUnpaidPriorMonth;
 
                         return (
                           <div
                             key={p.id}
-                            className="p-3.5 bg-white border border-slate-200/80 hover:border-slate-300 rounded-2xl flex items-center justify-between text-xs transition shadow-2xs"
+                            className={`p-3.5 rounded-2xl flex items-center justify-between text-xs transition shadow-2xs ${
+                              isLocked
+                                ? "bg-slate-50/70 border border-slate-200/60 opacity-65 cursor-not-allowed select-none"
+                                : "bg-white border border-slate-200/80 hover:border-slate-300"
+                            }`}
                           >
                             <div className="space-y-1">
                               <div className="flex items-center gap-2">
-                                <span className="font-bold text-slate-900">{p.month_number}-oy</span>
+                                <span className={`font-bold flex items-center gap-1 ${isLocked ? "text-slate-500" : "text-slate-900"}`}>
+                                  {isLocked && <Lock className="w-3 h-3 text-slate-400" />}
+                                  {p.month_number}-oy
+                                </span>
                                 <span
                                   className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${pInfo.bg} ${pInfo.text}`}
                                 >
                                   {pInfo.label}
                                 </span>
+                                {isLocked && (
+                                  <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200/60 px-1.5 py-0.5 rounded font-medium">
+                                    Oldingi oy to&apos;lanmagan
+                                  </span>
+                                )}
                               </div>
                               <p className="text-[11px] text-slate-500 flex items-center gap-1">
                                 <Clock className="w-3 h-3 text-slate-400" />
@@ -416,14 +434,27 @@ export function CarDetailModal({
                             </div>
 
                             {isPayable && (
-                              <button
-                                onClick={() =>
-                                  onPaymentClick(p, car.name, activeContract.driver_name)
-                                }
-                                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-semibold rounded-xl shadow-xs transition shrink-0 cursor-pointer text-xs"
-                              >
-                                To&apos;lov
-                              </button>
+                              isLocked ? (
+                                <button
+                                  type="button"
+                                  disabled
+                                  className="px-3 py-1.5 bg-slate-100 text-slate-400 font-medium rounded-xl text-xs shrink-0 cursor-not-allowed select-none border border-slate-200 flex items-center gap-1 opacity-80"
+                                  title="Oldingi oylar to'lovi yopilmaguncha bu oyni to'lab bo'lmaydi"
+                                >
+                                  <Lock className="w-3 h-3 text-slate-400" />
+                                  To&apos;lov
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    onPaymentClick(p, car.name, activeContract.driver_name)
+                                  }
+                                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-semibold rounded-xl shadow-xs transition shrink-0 cursor-pointer text-xs"
+                                >
+                                  To&apos;lov
+                                </button>
+                              )
                             )}
                           </div>
                         );

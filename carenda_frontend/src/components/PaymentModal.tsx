@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { X, DollarSign, CheckCircle2, Calendar, AlertTriangle, MessageSquare } from "lucide-react";
+import { X, DollarSign, CheckCircle2, Calendar, AlertTriangle, MessageSquare, Clock } from "lucide-react";
 import { recordPayment, postponePayment } from "@/lib/api";
 import { formatUSD, formatMoneyInput, parseMoneyValue } from "@/lib/utils";
 
@@ -16,6 +16,7 @@ interface PaymentTarget {
   car_name?: string;
   driver_name?: string;
   comment?: string;
+  is_postponed?: boolean;
 }
 
 interface PaymentModalProps {
@@ -202,7 +203,12 @@ export function PaymentModal({ payment, onClose, onSuccess }: PaymentModalProps)
 
           {/* Postpone Schedule Action */}
           <div className="pt-1">
-            {!confirmPostpone ? (
+            {payment.is_postponed || payment.comment?.includes("[1 oyga surildi]") ? (
+              <div className="w-full py-2.5 px-3.5 bg-slate-100 border border-slate-200 text-slate-500 rounded-xl text-xs font-medium flex items-center justify-center gap-1.5 cursor-not-allowed select-none">
+                <Clock className="w-3.5 h-3.5 text-slate-400" />
+                <span>⚠️ Ushbu oy to&apos;lovi allaqachon 1 marta surilgan</span>
+              </div>
+            ) : !confirmPostpone ? (
               <button
                 type="button"
                 onClick={() => setConfirmPostpone(true)}
@@ -210,14 +216,14 @@ export function PaymentModal({ payment, onClose, onSuccess }: PaymentModalProps)
                 className="w-full py-2.5 px-3.5 bg-amber-50 hover:bg-amber-100 active:scale-98 text-amber-800 border border-amber-200 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
               >
                 <Calendar className="w-4 h-4 text-amber-600" />
-                📅 To&apos;lovni 1 oy keyinga surish
+                📅 To&apos;lovni 1 oy keyinga surish (1 martalik)
               </button>
             ) : (
               <div className="p-3 bg-amber-50 border border-amber-200 text-amber-900 text-xs rounded-xl space-y-2.5 animate-in fade-in duration-150">
                 <div className="flex items-start gap-2">
                   <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                   <p className="font-medium leading-relaxed">
-                    Ushbu oy va undan keyingi barcha to&apos;lanmagan oylar sanasi 1 oy keyinga suriladi. Tasdiqlaysizmi?
+                    Ushbu oy va undan keyingi barcha to&apos;lanmagan oylar sanasi 1 oy keyinga suriladi. Har bir oy to&apos;lovini faqat bir marta surish mumkin. Tasdiqlaysizmi?
                   </p>
                 </div>
                 {comment.trim() && (

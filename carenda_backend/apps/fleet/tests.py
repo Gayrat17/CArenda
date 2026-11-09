@@ -1487,6 +1487,71 @@ class PaymentRecordingAndPostponeTests(TestCase):
         )
         self.assertEqual(res_cross.status_code, 404)
 
+    def test_cannot_pay_subsequent_month_before_prior_months_are_paid(self):
+        payments = list(self.contract.payments.order_by("month_number"))
+        p1 = payments[0]
+        p2 = payments[1]
+
+        # Try to pay month 2 while month 1 is still pending
+        res = self.client_owner.post(
+            f"/api/v1/payments/{p2.id}/pay/",
+            {"amount": "100.00"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("undan oldingi oylarning to'lovi to'liq yopilishi kerak", res.json()["detail"])
+
+        # Fully pay month 1
+        record_payment_service(
+            owner=self.owner,
+            payment=p1,
+            amount=p1.expected_amount,
+        )
+
+        # Now paying month 2 succeeds
+        res_ok = self.client_owner.post(
+            f"/api/v1/payments/{p2.id}/pay/",
+            {"amount": "100.00"},
+            format="json",
+        )
+        self.assertEqual(res_ok.status_code, 200)
+
+    def test_cannot_postpone_subsequent_month_before_prior_months_are_paid(self):
+        payments = list(self.contract.payments.order_by("month_number"))
+        p2 = payments[1]
+
+        # Try to postpone month 2 while month 1 is pending
+        res = self.client_owner.post(
+            f"/api/v1/payments/{p2.id}/postpone/",
+            {"comment": "Postpone test"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("undan oldingi oylarning to'lovi to'liq yopilishi kerak", res.json()["detail"])
+
+    def test_postpone_allowed_only_once_per_month(self):
+        payments = list(self.contract.payments.order_by("month_number"))
+        p1 = payments[0]
+
+        # 1st postpone succeeds
+        res1 = self.client_owner.post(
+            f"/api/v1/payments/{p1.id}/postpone/",
+            {"comment": "1-marta surildi"},
+            format="json",
+        )
+        self.assertEqual(res1.status_code, 200)
+        p1.refresh_from_db()
+        self.assertTrue(p1.is_postponed)
+
+        # 2nd postpone for the same month must be rejected
+        res2 = self.client_owner.post(
+            f"/api/v1/payments/{p1.id}/postpone/",
+            {"comment": "2-marta surilmoqchi"},
+            format="json",
+        )
+        self.assertEqual(res2.status_code, 400)
+        self.assertIn("allaqachon 1 marta surilgan", res2.json()["detail"])
+
 
 class SingleContractExcelExportTests(TestCase):
     def setUp(self):

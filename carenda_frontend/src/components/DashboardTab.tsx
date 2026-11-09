@@ -16,6 +16,7 @@ import {
   Copy,
   Check,
   MessageSquare,
+  Lock,
 } from "lucide-react";
 import { DashboardResponse, OverduePaymentItem, User } from "@/types/fleet";
 import { formatDate, formatUSD } from "@/lib/utils";
@@ -347,12 +348,24 @@ export function DashboardTab({
                             <Phone className="w-3.5 h-3.5" />
                           </a>
                         )}
-                        <button
-                          onClick={() => onPaymentClick(item)}
-                          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-semibold rounded-lg shadow-xs text-xs transition"
-                        >
-                          To'lov qabul qilish
-                        </button>
+                        {item.can_pay === false ? (
+                          <button
+                            type="button"
+                            disabled
+                            className="px-3 py-1.5 bg-slate-100 text-slate-400 font-semibold rounded-lg text-xs cursor-not-allowed select-none border border-slate-200 flex items-center gap-1 opacity-80"
+                            title="Oldingi oylar to'lovi to'liq yopilmaguncha bu oyni to'lab bo'lmaydi"
+                          >
+                            <Lock className="w-3.5 h-3.5 text-slate-400" />
+                            Oldingi oy to&apos;lanmagan
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => onPaymentClick(item)}
+                            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-semibold rounded-lg shadow-xs text-xs transition cursor-pointer"
+                          >
+                            To&apos;lov qabul qilish
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>

@@ -103,10 +103,15 @@ def get_dashboard_data_for_owner(owner, today=None):
     overdue_payments_data = []
     for p in overdue_qs:
         days_overdue = (today - p.due_date).days
+        has_prior_unpaid = Payment.objects.filter(
+            contract_id=p.contract_id,
+            month_number__lt=p.month_number,
+        ).exclude(status=Payment.Status.PAID).exists()
         overdue_payments_data.append(
             {
                 "id": p.id,
                 "contract_id": p.contract_id,
+                "month_number": p.month_number,
                 "car_name": p.contract.car.name,
                 "plate_number": p.contract.car.plate_number,
                 "driver_name": p.contract.driver.full_name,
@@ -117,6 +122,8 @@ def get_dashboard_data_for_owner(owner, today=None):
                 "remaining_amount": f"{p.remaining_amount:.2f}",
                 "days_overdue": max(0, days_overdue),
                 "comment": p.comment or "",
+                "can_pay": not has_prior_unpaid,
+                "is_postponed": bool(p.is_postponed or "[1 oyga surildi]" in (p.comment or "")),
             }
         )
 
@@ -575,10 +582,15 @@ class OverduePaymentsAPIView(APIView):
         results = []
         for p in overdue_qs:
             days_overdue = (today - p.due_date).days
+            has_prior_unpaid = Payment.objects.filter(
+                contract_id=p.contract_id,
+                month_number__lt=p.month_number,
+            ).exclude(status=Payment.Status.PAID).exists()
             results.append(
                 {
                     "id": p.id,
                     "contract_id": p.contract_id,
+                    "month_number": p.month_number,
                     "car_name": p.contract.car.name,
                     "plate_number": p.contract.car.plate_number,
                     "driver_name": p.contract.driver.full_name,
@@ -589,6 +601,8 @@ class OverduePaymentsAPIView(APIView):
                     "remaining_amount": f"{p.remaining_amount:.2f}",
                     "days_overdue": max(0, days_overdue),
                     "comment": p.comment or "",
+                    "can_pay": not has_prior_unpaid,
+                    "is_postponed": bool(p.is_postponed or "[1 oyga surildi]" in (p.comment or "")),
                 }
             )
         return Response(results)
