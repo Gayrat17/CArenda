@@ -6,6 +6,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
     BufferedInputFile,
+    CallbackQuery,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     KeyboardButton,
@@ -617,3 +618,143 @@ async def handle_subscription_info(message: Message):
         parse_mode="HTML",
         reply_markup=get_miniapp_inline_keyboard(),
     )
+
+
+@router.callback_query(F.data.startswith("sub_approve:"))
+async def handle_sub_approve_callback(callback: CallbackQuery):
+    if not callback.from_user:
+        return
+
+    admin_tg_id = callback.from_user.id
+    admin_username = callback.from_user.username or str(admin_tg_id)
+
+    try:
+        sub_id = int(callback.data.split(":")[1])
+    except (ValueError, IndexError):
+        await callback.answer("Noto'g'ri so'rov identifikatori.", show_alert=True)
+        return
+
+    @sync_to_async
+    def do_approve():
+        from apps.users.models import SubscriptionRequest, User
+        from apps.users.services import process_subscription_approval
+
+        cfg_admin_id = getattr(settings, "ADMIN_TELEGRAM_ID", None)
+        is_cfg_admin = cfg_admin_id and cfg_admin_id == admin_tg_id
+        is_db_admin = User.objects.filter(
+            telegram_id=admin_tg_id,
+            role=User.RoleChoices.SUPERADMIN,
+        ).exists() or User.objects.filter(telegram_id=admin_tg_id, is_superuser=True).exists()
+
+        if not (is_cfg_admin or is_db_admin):
+            return "NO_PERMISSION", None
+
+        try:
+            sub_req = SubscriptionRequest.objects.select_related("user").get(id=sub_id)
+        except SubscriptionRequest.DoesNotExist:
+            return "NOT_FOUND", None
+
+        if sub_req.status != SubscriptionRequest.Status.PENDING:
+            return "ALREADY_PROCESSED", sub_req
+
+        success = process_subscription_approval(
+            sub_request=sub_req,
+            reviewer_label=f"@{admin_username}",
+        )
+        return ("SUCCESS" if success else "FAILED"), sub_req
+
+    status_res, sub_req = await do_approve()
+
+    if status_res == "NO_PERMISSION":
+        await callback.answer("Sizda ushbu amalni bajarish uchun admin huquqi yo'q!", show_alert=True)
+        return
+    elif status_res == "NOT_FOUND":
+        await callback.answer("Obuna so'rovi topilmadi.", show_alert=True)
+        return
+    elif status_res == "ALREADY_PROCESSED":
+        label = sub_req.get_status_display() if sub_req else ""
+        await callback.answer(f"Bu so'rov allaqachon ko'rib chiqilgan ({label})!", show_alert=True)
+        return
+
+    await callback.answer("✅ Obuna 30 kunga faollashtirildi!", show_alert=False)
+    orig_text = callback.message.text or "" if callback.message else ""
+    updated_text = (
+        f"{orig_text}\n\n"
+        f"✅ <b>Tasdiqlandi (30 kun qo'shildi)</b>\n"
+        f"👮‍♂️ Admin: @{admin_username}"
+    )
+    try:
+        if callback.message:
+            await callback.message.edit_text(updated_text, parse_mode="HTML", reply_markup=None)
+    except Exception:
+        pass
+
+
+@router.callback_query(F.data.startswith("sub_reject:"))
+async def handle_sub_reject_callback(callback: CallbackQuery):
+    if not callback.from_user:
+        return
+
+    admin_tg_id = callback.from_user.id
+    admin_username = callback.from_user.username or str(admin_tg_id)
+
+    try:
+        sub_id = int(callback.data.split(":")[1])
+    except (ValueError, IndexError):
+        await callback.answer("Noto'g'ri so'rov identifikatori.", show_alert=True)
+        return
+
+    @sync_to_async
+    def do_reject():
+        from apps.users.models import SubscriptionRequest, User
+        from apps.users.services import process_subscription_rejection
+
+        cfg_admin_id = getattr(settings, "ADMIN_TELEGRAM_ID", None)
+        is_cfg_admin = cfg_admin_id and cfg_admin_id == admin_tg_id
+        is_db_admin = User.objects.filter(
+            telegram_id=admin_tg_id,
+            role=User.RoleChoices.SUPERADMIN,
+        ).exists() or User.objects.filter(telegram_id=admin_tg_id, is_superuser=True).exists()
+
+        if not (is_cfg_admin or is_db_admin):
+            return "NO_PERMISSION", None
+
+        try:
+            sub_req = SubscriptionRequest.objects.select_related("user").get(id=sub_id)
+        except SubscriptionRequest.DoesNotExist:
+            return "NOT_FOUND", None
+
+        if sub_req.status != SubscriptionRequest.Status.PENDING:
+            return "ALREADY_PROCESSED", sub_req
+
+        success = process_subscription_rejection(
+            sub_request=sub_req,
+            reviewer_label=f"@{admin_username}",
+        )
+        return ("SUCCESS" if success else "FAILED"), sub_req
+
+    status_res, sub_req = await do_reject()
+
+    if status_res == "NO_PERMISSION":
+        await callback.answer("Sizda ushbu amalni bajarish uchun admin huquqi yo'q!", show_alert=True)
+        return
+    elif status_res == "NOT_FOUND":
+        await callback.answer("Obuna so'rovi topilmadi.", show_alert=True)
+        return
+    elif status_res == "ALREADY_PROCESSED":
+        label = sub_req.get_status_display() if sub_req else ""
+        await callback.answer(f"Bu so'rov allaqachon ko'rib chiqilgan ({label})!", show_alert=True)
+        return
+
+    await callback.answer("❌ Obuna so'rovi rad etildi.", show_alert=False)
+    orig_text = callback.message.text or "" if callback.message else ""
+    updated_text = (
+        f"{orig_text}\n\n"
+        f"❌ <b>Rad etildi</b>\n"
+        f"👮‍♂️ Admin: @{admin_username}"
+    )
+    try:
+        if callback.message:
+            await callback.message.edit_text(updated_text, parse_mode="HTML", reply_markup=None)
+    except Exception:
+        pass

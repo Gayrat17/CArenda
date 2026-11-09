@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from apps.users.models import User, UserSetting
+from apps.users.models import PaymentSettings, SubscriptionRequest, User, UserSetting
 
 
 class UserMeSerializer(serializers.ModelSerializer):
@@ -85,3 +85,86 @@ class UserMeUpdateSerializer(serializers.Serializer):
     default_annual_percent = serializers.DecimalField(
         max_digits=5, decimal_places=2, required=False, min_value=0
     )
+
+
+class PaymentSettingsSerializer(serializers.ModelSerializer):
+    paynet_qr_image = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PaymentSettings
+        fields = [
+            "id",
+            "paynet_url",
+            "paynet_qr_image",
+            "card_number",
+            "card_holder",
+            "support_telegram",
+            "standard_plan_price",
+            "pro_plan_price",
+            "updated_at",
+        ]
+
+    def get_paynet_qr_image(self, obj: PaymentSettings) -> str | None:
+        if not obj.paynet_qr_image:
+            return None
+        request = self.context.get("request")
+        if request:
+            return request.build_absolute_uri(obj.paynet_qr_image.url)
+        return obj.paynet_qr_image.url
+
+
+class PaymentSettingsUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PaymentSettings
+        fields = [
+            "paynet_url",
+            "paynet_qr_image",
+            "card_number",
+            "card_holder",
+            "support_telegram",
+            "standard_plan_price",
+            "pro_plan_price",
+        ]
+        extra_kwargs = {
+            "paynet_url": {"required": False, "allow_null": True, "allow_blank": True},
+            "paynet_qr_image": {"required": False, "allow_null": True},
+            "card_number": {"required": False, "allow_blank": True},
+            "card_holder": {"required": False, "allow_blank": True},
+            "support_telegram": {"required": False, "allow_blank": True},
+            "standard_plan_price": {"required": False, "min_value": 0},
+            "pro_plan_price": {"required": False, "min_value": 0},
+        }
+
+
+class SubscriptionRequestCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SubscriptionRequest
+        fields = ["plan_type", "amount", "note"]
+        extra_kwargs = {
+            "amount": {"required": False},
+            "note": {"required": False, "allow_blank": True},
+        }
+
+
+class SubscriptionRequestSerializer(serializers.ModelSerializer):
+    user_name = serializers.CharField(source="user.full_name", read_only=True)
+    user_phone = serializers.CharField(source="user.phone", read_only=True)
+    plan_display = serializers.CharField(source="get_plan_type_display", read_only=True)
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+
+    class Meta:
+        model = SubscriptionRequest
+        fields = [
+            "id",
+            "plan_type",
+            "plan_display",
+            "amount",
+            "status",
+            "status_display",
+            "note",
+            "admin_note",
+            "user_name",
+            "user_phone",
+            "created_at",
+            "reviewed_at",
+        ]

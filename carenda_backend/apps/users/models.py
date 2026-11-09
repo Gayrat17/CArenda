@@ -23,8 +23,9 @@ def generate_unique_tenant_code() -> str:
 
 class User(AbstractUser):
     class Plan(models.TextChoices):
-        TRIAL = "trial", "Trial"
-        BASIC = "basic", "Basic"
+        TRIAL = "trial", "Sinov (Trial)"
+        STANDARD = "standard", "Standart"
+        BASIC = "basic", "Standart"
         PRO = "pro", "Pro"
 
     class RoleChoices(models.TextChoices):
@@ -188,3 +189,129 @@ class UserSetting(models.Model):
 
     def __str__(self):
         return f"Settings for {self.owner}"
+
+
+class PaymentSettings(models.Model):
+    paynet_url = models.URLField(
+        max_length=500,
+        blank=True,
+        null=True,
+        verbose_name="Paynet to'lov havolasi (P2P / QR URL)",
+    )
+    paynet_qr_image = models.FileField(
+        upload_to="payment_qr/",
+        blank=True,
+        null=True,
+        verbose_name="Paynet QR-kod rasmi",
+    )
+    card_number = models.CharField(
+        max_length=30,
+        blank=True,
+        default="",
+        verbose_name="Karta raqami",
+    )
+    card_holder = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        verbose_name="Karta egasi",
+    )
+    support_telegram = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        verbose_name="Qo'llab-quvvatlash Telegrami (@username)",
+    )
+    standard_plan_price = models.PositiveIntegerField(
+        default=120000,
+        verbose_name="Standart tarif narxi (UZS / oy)",
+    )
+    pro_plan_price = models.PositiveIntegerField(
+        default=250000,
+        verbose_name="Pro tarif narxi (UZS / oy)",
+    )
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Oxirgi tahrir")
+
+    class Meta:
+        verbose_name = "To'lov sozlamalari (Paynet / Karta)"
+        verbose_name_plural = "To'lov sozlamalari"
+
+    @classmethod
+    def get_settings(cls):
+        from django.conf import settings
+        instance, created = cls.objects.get_or_create(id=1)
+        if created:
+            instance.paynet_url = getattr(settings, "DEFAULT_PAYNET_URL", "") or None
+            instance.card_number = getattr(settings, "DEFAULT_CARD_NUMBER", "")
+            instance.card_holder = getattr(settings, "DEFAULT_CARD_HOLDER", "")
+            instance.save(update_fields=["paynet_url", "card_number", "card_holder"])
+        return instance
+
+    def __str__(self):
+        return "To'lov Sozlamalari (Yagona konfiguratsiya)"
+
+
+class SubscriptionRequest(models.Model):
+    class PlanType(models.TextChoices):
+        STANDARD = "standard", "Standart"
+        PRO = "pro", "Pro (Premium)"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Kutilmoqda"
+        APPROVED = "approved", "Tasdiqlandi"
+        REJECTED = "rejected", "Rad etildi"
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="subscription_requests",
+        verbose_name="Foydalanuvchi",
+    )
+    plan_type = models.CharField(
+        max_length=20,
+        choices=PlanType.choices,
+        verbose_name="So'ralgan tarif",
+    )
+    amount = models.PositiveIntegerField(
+        default=0,
+        verbose_name="To'lov summasi (UZS)",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+        db_index=True,
+        verbose_name="Holati",
+    )
+    note = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="Mijoz izohi / tranzaksiya",
+    )
+    admin_note = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name="Admin izohi",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_index=True,
+        verbose_name="So'rov vaqti",
+    )
+    reviewed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Ko'rib chiqilgan vaqt",
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Obuna so'rovi"
+        verbose_name_plural = "Obuna so'rovlari"
+        indexes = [
+            models.Index(fields=["user", "status"]),
+        ]
+
+    def __str__(self):
+        return f"So'rov #{self.id} - {self.user} ({self.get_plan_type_display()}: {self.get_status_display()})"

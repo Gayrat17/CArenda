@@ -38,6 +38,7 @@ declare global {
         close?: () => void;
         ready?: () => void;
         expand?: () => void;
+        openLink?: (url: string) => void;
         disableVerticalSwipes?: () => void;
         showAlert?: (message: string, callback?: () => void) => void;
         HapticFeedback?: {
@@ -529,5 +530,39 @@ export async function getUserSchedule(options?: { forceRefresh?: boolean }): Pro
 }
 
 export const getClientContracts = getUserSchedule;
+
+// Subscription & Payment Settings APIs
+export async function getPaymentSettings(options?: { forceRefresh?: boolean }): Promise<import("@/types/subscription").PaymentSettings> {
+  return apiFetch<import("@/types/subscription").PaymentSettings>("/subscriptions/payment-settings/", options);
+}
+
+export async function updatePaymentSettings(
+  data: FormData | Record<string, unknown>
+): Promise<import("@/types/subscription").PaymentSettings> {
+  const isFormData = data instanceof FormData;
+  const result = await apiFetch<import("@/types/subscription").PaymentSettings>("/subscriptions/payment-settings/", {
+    method: "PATCH",
+    body: isFormData ? data : JSON.stringify(data),
+  });
+  clearApiCache();
+  return result;
+}
+
+export async function createSubscriptionRequest(payload: {
+  plan_type: "standard" | "pro";
+  amount?: number;
+  note?: string;
+}): Promise<import("@/types/subscription").SubscriptionRequest> {
+  const result = await apiFetch<import("@/types/subscription").SubscriptionRequest>("/subscriptions/request/", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  clearApiCache();
+  return result;
+}
+
+export async function getMySubscriptionStatus(options?: { forceRefresh?: boolean }): Promise<import("@/types/subscription").SubscriptionStatusResponse> {
+  return apiFetch<import("@/types/subscription").SubscriptionStatusResponse>("/subscriptions/my-status/", options);
+}
 
 

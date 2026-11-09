@@ -215,6 +215,10 @@ USE_TZ = True
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
+# Media files (User uploads, Payment QR, etc.)
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Telegram Mini App Configuration
@@ -223,6 +227,14 @@ TELEGRAM_BOT_TOKEN = config(
     default=config("TELEGRAM_BOT_TOKEN", default="dev_bot_token_123456"),
 )
 WEBAPP_URL = config("WEBAPP_URL", default="http://localhost:3000")
+ADMIN_TELEGRAM_ID = config('ADMIN_TELEGRAM_ID', default=None, cast=lambda v: int(v) if v else None)
+
+# Payment Defaults / Fallbacks from Environment
+DEFAULT_PAYNET_URL = config('NEXT_PUBLIC_PAYNET_P2P_URL', default='')
+DEFAULT_CLICK_URL = config('NEXT_PUBLIC_CLICK_P2P_URL', default='')
+DEFAULT_PAYME_URL = config('NEXT_PUBLIC_PAYME_P2P_URL', default='')
+DEFAULT_CARD_NUMBER = config('NEXT_PUBLIC_ADMIN_CARD_NUMBER', default='')
+DEFAULT_CARD_HOLDER = config('NEXT_PUBLIC_ADMIN_CARD_HOLDER', default='')
 
 # Django Rest Framework Configuration
 REST_FRAMEWORK = {

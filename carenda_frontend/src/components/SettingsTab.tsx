@@ -1,9 +1,23 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { User as UserIcon, Shield, Check, Save, Sparkles, AlertCircle, Copy, Lock } from "lucide-react";
+import { useRouter } from "next/navigation";
+import {
+  User as UserIcon,
+  Shield,
+  Check,
+  Save,
+  Sparkles,
+  AlertCircle,
+  Copy,
+  Lock,
+  ChevronRight,
+  CreditCard,
+  QrCode,
+  Upload,
+} from "lucide-react";
 import { User as UserType } from "@/types/fleet";
-import { updateMe } from "@/lib/api";
+import { getPaymentSettings, updateMe, updatePaymentSettings } from "@/lib/api";
 import { formatDateTime, formatPercent } from "@/lib/utils";
 import { resolveUserIdentity } from "@/lib/identity";
 
@@ -13,6 +27,7 @@ interface SettingsTabProps {
 }
 
 export function SettingsTab({ user, onRefreshUser }: SettingsTabProps) {
+  const router = useRouter();
   const [fullName, setFullName] = useState(user?.full_name || "");
   const [defaultPercent, setDefaultPercent] = useState(
     formatPercent(user?.default_annual_percent) || "20"
@@ -21,6 +36,20 @@ export function SettingsTab({ user, onRefreshUser }: SettingsTabProps) {
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Superadmin Payment Settings State
+  const isSuperadmin = user?.role === "superadmin";
+  const [paynetUrl, setPaynetUrl] = useState("");
+  const [standardPrice, setStandardPrice] = useState(120000);
+  const [proPrice, setProPrice] = useState(250000);
+  const [cardNumber, setCardNumber] = useState("");
+  const [cardHolder, setCardHolder] = useState("");
+  const [supportTelegram, setSupportTelegram] = useState("");
+  const [currentQrImage, setCurrentQrImage] = useState<string | null>(null);
+  const [qrFile, setQrFile] = useState<File | null>(null);
+  const [savingPaymentSettings, setSavingPaymentSettings] = useState(false);
+  const [paymentSettingsSuccess, setPaymentSettingsSuccess] = useState(false);
+  const [paymentSettingsError, setPaymentSettingsError] = useState<string | null>(null);
 
   const identity = resolveUserIdentity(user);
 
@@ -32,6 +61,55 @@ export function SettingsTab({ user, onRefreshUser }: SettingsTabProps) {
       }
     }
   }, [user]);
+
+  useEffect(() => {
+    if (isSuperadmin) {
+      getPaymentSettings({ forceRefresh: true })
+        .then((s) => {
+          setPaynetUrl(s.paynet_url || "");
+          setStandardPrice(s.standard_plan_price || 120000);
+          setProPrice(s.pro_plan_price || 250000);
+          setCardNumber(s.card_number || "");
+          setCardHolder(s.card_holder || "");
+          setSupportTelegram(s.support_telegram || "");
+          setCurrentQrImage(s.paynet_qr_image);
+        })
+        .catch(() => {
+          // ignore
+        });
+    }
+  }, [isSuperadmin]);
+
+  const handleSavePaymentSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setSavingPaymentSettings(true);
+      setPaymentSettingsError(null);
+      setPaymentSettingsSuccess(false);
+
+      const formData = new FormData();
+      formData.append("paynet_url", paynetUrl.trim());
+      formData.append("standard_plan_price", String(standardPrice));
+      formData.append("pro_plan_price", String(proPrice));
+      formData.append("card_number", cardNumber.trim());
+      formData.append("card_holder", cardHolder.trim());
+      formData.append("support_telegram", supportTelegram.trim());
+      if (qrFile) {
+        formData.append("paynet_qr_image", qrFile);
+      }
+
+      const updated = await updatePaymentSettings(formData);
+      setCurrentQrImage(updated.paynet_qr_image);
+      setPaymentSettingsSuccess(true);
+      setTimeout(() => setPaymentSettingsSuccess(false), 4000);
+    } catch (err: unknown) {
+      setPaymentSettingsError(
+        err instanceof Error ? err.message : "Sozlamalarni saqlashda xatolik yuz berdi."
+      );
+    } finally {
+      setSavingPaymentSettings(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -137,7 +215,10 @@ export function SettingsTab({ user, onRefreshUser }: SettingsTabProps) {
       </div>
 
       {/* Subscription & Role Status Card */}
-      <div className="bg-gradient-to-br from-indigo-900 to-slate-900 text-white p-5 rounded-3xl shadow-sm space-y-3">
+      <div
+        onClick={() => router.push("/subscription")}
+        className="bg-gradient-to-br from-indigo-900 to-slate-900 text-white p-5 rounded-3xl shadow-sm space-y-3 cursor-pointer hover:shadow-md transition active:scale-[0.99] group relative overflow-hidden"
+      >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="p-2 bg-indigo-500/20 text-indigo-300 rounded-full">
@@ -181,6 +262,13 @@ export function SettingsTab({ user, onRefreshUser }: SettingsTabProps) {
               {formatDateTime(user?.expires_at)}
             </p>
           </div>
+        </div>
+
+        <div className="flex items-center justify-between text-xs text-indigo-200 pt-1 border-t border-white/10 group-hover:text-white transition">
+          <span className="text-[11px] font-medium">Tariflarni ko'rish va obuna bo'lish</span>
+          <span className="text-xs font-bold flex items-center gap-0.5">
+            Batafsil <ChevronRight className="w-3.5 h-3.5" />
+          </span>
         </div>
       </div>
 
@@ -341,6 +429,174 @@ export function SettingsTab({ user, onRefreshUser }: SettingsTabProps) {
           {loading ? "Saqlanmoqda..." : "Sozlamalarni saqlash"}
         </button>
       </form>
+
+      {/* Superadmin Payment Settings Section */}
+      {isSuperadmin && (
+        <div className="pt-2">
+          <form
+            onSubmit={handleSavePaymentSettings}
+            className="bg-white p-5 rounded-3xl border-2 border-indigo-200/80 shadow-xs space-y-4"
+          >
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-indigo-50 text-indigo-700 rounded-xl">
+                  <CreditCard className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-slate-900">
+                    To'lov Sozlamalari (Superadmin)
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Paynet, QR kod va obuna tarif narxlari
+                  </p>
+                </div>
+              </div>
+              <span className="text-[10px] font-bold uppercase bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-md">
+                Admin Panel
+              </span>
+            </div>
+
+            {paymentSettingsError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{paymentSettingsError}</span>
+              </div>
+            )}
+
+            {paymentSettingsSuccess && (
+              <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs rounded-xl flex items-center gap-2">
+                <Check className="w-4 h-4 shrink-0" />
+                <span>To'lov sozlamalari muvaffaqiyatli yangilandi!</span>
+              </div>
+            )}
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Paynet to'lov havolasi (P2P / QR URL)
+                </label>
+                <input
+                  type="url"
+                  value={paynetUrl}
+                  onChange={(e) => setPaynetUrl(e.target.value)}
+                  placeholder="https://paynet.uz/p2p/..."
+                  className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Standart narx (UZS / oy)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1000"
+                    value={standardPrice}
+                    onChange={(e) => setStandardPrice(Number(e.target.value))}
+                    className="w-full px-3.5 py-2.5 text-xs font-bold bg-slate-50 border border-slate-200 rounded-xl"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Pro narx (UZS / oy)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1000"
+                    value={proPrice}
+                    onChange={(e) => setProPrice(Number(e.target.value))}
+                    className="w-full px-3.5 py-2.5 text-xs font-bold bg-slate-50 border border-slate-200 rounded-xl"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Karta raqami (Fallback)
+                  </label>
+                  <input
+                    type="text"
+                    value={cardNumber}
+                    onChange={(e) => setCardNumber(e.target.value)}
+                    placeholder="8600 0000 0000 0000"
+                    className="w-full px-3.5 py-2.5 text-xs font-mono bg-slate-50 border border-slate-200 rounded-xl"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Karta egasi
+                  </label>
+                  <input
+                    type="text"
+                    value={cardHolder}
+                    onChange={(e) => setCardHolder(e.target.value)}
+                    placeholder="G'AYRATJON X."
+                    className="w-full px-3.5 py-2.5 text-xs uppercase bg-slate-50 border border-slate-200 rounded-xl"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Qo'llab-quvvatlash Telegrami (@username)
+                </label>
+                <input
+                  type="text"
+                  value={supportTelegram}
+                  onChange={(e) => setSupportTelegram(e.target.value)}
+                  placeholder="@carenda_admin"
+                  className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl"
+                />
+              </div>
+
+              {/* Paynet QR Image Upload */}
+              <div className="pt-1">
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Paynet QR-kod rasmi (PNG/JPG)
+                </label>
+                <div className="flex items-center gap-3">
+                  {currentQrImage && (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img
+                      src={currentQrImage}
+                      alt="Joriy QR kod"
+                      className="w-14 h-14 object-contain rounded-xl border border-slate-200 bg-white p-1"
+                    />
+                  )}
+                  <label className="flex-1 flex items-center justify-center gap-2 p-3 border border-dashed border-slate-300 hover:border-indigo-400 bg-slate-50 hover:bg-indigo-50/50 rounded-xl cursor-pointer text-xs font-medium text-slate-600 transition">
+                    <Upload className="w-4 h-4 text-indigo-600" />
+                    <span>{qrFile ? qrFile.name : "Yangi QR rasm yuklash"}</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) setQrFile(file);
+                      }}
+                    />
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={savingPaymentSettings}
+              className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center justify-center gap-2"
+            >
+              <Save className="w-4 h-4" />
+              <span>
+                {savingPaymentSettings ? "Saqlanmoqda..." : "To'lov Sozlamalarini Saqlash"}
+              </span>
+            </button>
+          </form>
+        </div>
+      )}
     </div>
   );
 }

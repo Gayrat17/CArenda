@@ -288,3 +288,130 @@ class UserMeAPITests(TestCase):
         driver_user.refresh_from_db()
         self.assertEqual(driver_user.full_name, "Dilshod Haydovchi")
         self.assertEqual(driver_user.phone, "")
+
+
+class SubscriptionFlowTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username="owner_sub_test",
+            role=User.RoleChoices.ARENDATOR,
+            plan=User.Plan.TRIAL,
+            cars_limit=2,
+            full_name="Test Arendator",
+            phone="+998901234567",
+            telegram_id=99887711,
+            expires_at=timezone.now() + timedelta(days=5),
+        )
+        self.superadmin = User.objects.create_user(
+            username="superadmin_test",
+            role=User.RoleChoices.SUPERADMIN,
+            is_superuser=True,
+            is_staff=True,
+            full_name="Super Admin",
+            telegram_id=88776655,
+        )
+        self.client_owner = APIClient()
+        self.client_owner.force_authenticate(user=self.owner)
+
+        self.client_super = APIClient()
+        self.client_super.force_authenticate(user=self.superadmin)
+
+    def test_payment_settings_get(self):
+        res = self.client_owner.get("/api/v1/subscriptions/payment-settings/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        data = res.json()
+        self.assertIn("standard_plan_price", data)
+        self.assertIn("pro_plan_price", data)
+        self.assertIn("card_number", data)
+
+    def test_payment_settings_patch_restricted_to_superadmin(self):
+        # Regular owner should be forbidden
+        res = self.client_owner.patch(
+            "/api/v1/subscriptions/payment-settings/",
+            {"standard_plan_price": 130000},
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Superadmin succeeds
+        res_ok = self.client_super.patch(
+            "/api/v1/subscriptions/payment-settings/",
+            {
+                "standard_plan_price": 150000,
+                "paynet_url": "https://paynet.uz/p2p/test",
+                "card_number": "8600123412341234",
+                "card_holder": "ALISHER N.",
+            },
+            format="json",
+        )
+        self.assertEqual(res_ok.status_code, status.HTTP_200_OK)
+        data = res_ok.json()
+        self.assertEqual(data["standard_plan_price"], 150000)
+        self.assertEqual(data["paynet_url"], "https://paynet.uz/p2p/test")
+        self.assertEqual(data["card_number"], "8600123412341234")
+
+    def test_create_subscription_request_and_duplicate_prevention(self):
+        # 1. Create first pending request
+        res = self.client_owner.post(
+            "/api/v1/subscriptions/request/",
+            {"plan_type": "pro", "note": "To'lov qilindi"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        data = res.json()
+        self.assertEqual(data["plan_type"], "pro")
+        self.assertEqual(data["status"], "pending")
+
+        # 2. Second request while first is pending must fail with 400
+        res_dup = self.client_owner.post(
+            "/api/v1/subscriptions/request/",
+            {"plan_type": "pro"},
+            format="json",
+        )
+        self.assertEqual(res_dup.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("allaqachon ko'rib chiqilayotgan", res_dup.json()["detail"])
+
+    def test_subscription_approval_service(self):
+        from apps.users.models import SubscriptionRequest
+        from apps.users.services import process_subscription_approval
+
+        sub_req = SubscriptionRequest.objects.create(
+            user=self.owner,
+            plan_type="pro",
+            amount=250000,
+            status=SubscriptionRequest.Status.PENDING,
+        )
+        old_expiry = self.owner.expires_at
+
+        # Process approval
+        success = process_subscription_approval(sub_req, reviewer_label="@admin")
+        self.assertTrue(success)
+
+        sub_req.refresh_from_db()
+        self.assertEqual(sub_req.status, SubscriptionRequest.Status.APPROVED)
+
+        self.owner.refresh_from_db()
+        self.assertEqual(self.owner.plan, "pro")
+        self.assertEqual(self.owner.cars_limit, 9999)
+        self.assertGreater(self.owner.expires_at, old_expiry)
+        # Should be roughly 30 days added
+        diff_days = (self.owner.expires_at - old_expiry).days
+        self.assertEqual(diff_days, 30)
+
+    def test_subscription_rejection_service(self):
+        from apps.users.models import SubscriptionRequest
+        from apps.users.services import process_subscription_rejection
+
+        sub_req = SubscriptionRequest.objects.create(
+            user=self.owner,
+            plan_type="standard",
+            amount=120000,
+            status=SubscriptionRequest.Status.PENDING,
+        )
+
+        success = process_subscription_rejection(sub_req, reviewer_label="@admin", reason="Chek topilmadi")
+        self.assertTrue(success)
+
+        sub_req.refresh_from_db()
+        self.assertEqual(sub_req.status, SubscriptionRequest.Status.REJECTED)
+        self.assertIn("Rad etdi", sub_req.admin_note)

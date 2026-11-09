@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   TrendingUp,
   DollarSign,
@@ -36,6 +37,7 @@ export function DashboardTab({
   onPaymentClick,
   onNavigateTab,
 }: DashboardTabProps) {
+  const router = useRouter();
   const [downloadingExcel, setDownloadingExcel] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
 
@@ -136,9 +138,15 @@ export function DashboardTab({
           </div>
 
           <div className="flex flex-col items-end gap-1 shrink-0">
-            <span className="px-2.5 py-0.5 text-xs font-semibold uppercase bg-blue-100 text-blue-800 rounded-full">
-              {user?.plan || "Trial"}
-            </span>
+            <button
+              type="button"
+              onClick={() => router.push("/subscription")}
+              className="px-2.5 py-0.5 text-xs font-semibold uppercase bg-blue-100 hover:bg-blue-200 active:scale-95 text-blue-800 rounded-full transition cursor-pointer flex items-center gap-1 shadow-2xs"
+              title="Tariflar va obuna"
+            >
+              <span>{user?.plan || "Trial"}</span>
+              <span className="text-[10px] text-blue-600 font-bold">›</span>
+            </button>
             <span className="text-[11px] text-slate-500 font-medium">
               {user?.cars_count || 0} / {user?.cars_limit || 0} mashina
             </span>
