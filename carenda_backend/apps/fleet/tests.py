@@ -15,6 +15,7 @@ from apps.fleet.services import (
     close_contract_service,
     create_car_service,
     create_contract_service,
+    postpone_contract_payments_service,
     record_payment_service,
 )
 from apps.users.models import User, UserSetting
@@ -1310,6 +1311,179 @@ class InlineCarContractCreationTests(TestCase):
         res = self.client_api.post("/api/v1/contracts/", payload, format="json")
         self.assertEqual(res.status_code, 400)
         self.assertIn("non_field_errors", res.json())
+
+
+class PaymentRecordingAndPostponeTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username="owner_pay",
+            email="owner_pay@carenda.uz",
+            password="securepassword123",
+            full_name="Alisher Usmonov",
+            phone="+998901234567",
+            telegram_id=111222333,
+            cars_limit=10,
+            expires_at=timezone.now() + timedelta(days=60),
+        )
+        self.other_owner = User.objects.create_user(
+            username="other_pay",
+            email="other_pay@carenda.uz",
+            password="securepassword123",
+            full_name="Begzod Rahimov",
+            phone="+998909876543",
+            telegram_id=444555666,
+        )
+        self.car = create_car_service(
+            owner=self.owner,
+            name="Chevrolet Cobalt",
+            plate_number="01C111CC",
+            default_price=Decimal("12000.00"),
+        )
+        self.driver = Driver.objects.create(
+            owner=self.owner,
+            full_name="Rustam Qosimov",
+            phone="+998907778899",
+            passport_info="AA9998877",
+        )
+        self.contract = create_contract_service(
+            owner=self.owner,
+            car=self.car,
+            driver=self.driver,
+            car_price=Decimal("12000.00"),
+            initial_payment=Decimal("2000.00"),
+            annual_percent=Decimal("20.00"),
+            months_count=12,
+            payment_day=31,
+            start_date=date(2026, 1, 15),
+        )
+
+        self.client_owner = APIClient()
+        self.client_owner.force_authenticate(user=self.owner)
+
+        self.client_other = APIClient()
+        self.client_other.force_authenticate(user=self.other_owner)
+
+    def test_payment_recording_persists_in_db_and_car_detail(self):
+        first_payment = self.contract.payments.order_by("month_number").first()
+        payment_id = first_payment.id
+        expected_monthly = first_payment.expected_amount
+
+        # 1. Record partial payment
+        pay_payload = {
+            "amount": "150.00",
+            "comment": "Naqd berildi",
+        }
+        res = self.client_owner.post(f"/api/v1/payments/{payment_id}/pay/", pay_payload, format="json")
+        self.assertEqual(res.status_code, 200)
+
+        # 2. Verify directly in PostgreSQL/ORM
+        db_payment = Payment.objects.get(id=payment_id)
+        self.assertEqual(db_payment.paid_amount, Decimal("150.00"))
+        self.assertEqual(db_payment.status, Payment.Status.PARTIAL)
+        self.assertEqual(db_payment.comment, "Naqd berildi")
+        self.assertIsNotNone(db_payment.paid_at)
+
+        # 3. Verify GET /api/v1/cars/<car_id>/ returns the persisted payment and comment
+        car_res = self.client_owner.get(f"/api/v1/cars/{self.car.id}/")
+        self.assertEqual(car_res.status_code, 200)
+        car_data = car_res.json()
+        active_payments = car_data["active_contract"]["payments"]
+        self.assertEqual(len(active_payments), 12)
+        paid_p1 = active_payments[0]
+        self.assertEqual(paid_p1["id"], payment_id)
+        self.assertEqual(paid_p1["paid_amount"], "150.00")
+        self.assertEqual(paid_p1["status"], "partial")
+        self.assertEqual(paid_p1["comment"], "Naqd berildi")
+
+        # 4. Complete payment to full
+        remaining = expected_monthly - Decimal("150.00")
+        pay_full_payload = {
+            "amount": str(remaining),
+            "comment": "To'liq yakunlandi",
+        }
+        res_full = self.client_owner.post(f"/api/v1/payments/{payment_id}/pay/", pay_full_payload, format="json")
+        self.assertEqual(res_full.status_code, 200)
+
+        # Verify full payment in DB
+        db_payment.refresh_from_db()
+        self.assertEqual(db_payment.status, Payment.Status.PAID)
+        self.assertEqual(db_payment.remaining_amount, Decimal("0.00"))
+        self.assertEqual(db_payment.comment, "To'liq yakunlandi")
+
+    def test_payment_postpone_shifts_all_subsequent_unpaid_months(self):
+        # Initial due dates with payment_day = 31:
+        # Month 1: 2026-02-28 (clamped)
+        # Month 2: 2026-03-31
+        # Month 3: 2026-04-30 (clamped)
+        # Month 4: 2026-05-31
+        payments = list(self.contract.payments.order_by("month_number"))
+        self.assertEqual(len(payments), 12)
+        p1 = payments[0]
+        p2 = payments[1]
+        p3 = payments[2]
+
+        self.assertEqual(p1.due_date, date(2026, 2, 28))
+        self.assertEqual(p2.due_date, date(2026, 3, 31))
+        self.assertEqual(p3.due_date, date(2026, 4, 30))
+
+        # First, mark month 1 as fully PAID
+        record_payment_service(
+            owner=self.owner,
+            payment=p1,
+            amount=p1.expected_amount,
+            comment="1-oy to'langan",
+        )
+        p1.refresh_from_db()
+        self.assertEqual(p1.status, Payment.Status.PAID)
+
+        # Now postpone from Month 2 onwards
+        res = self.client_owner.post(
+            f"/api/v1/payments/{p2.id}/postpone/",
+            {"comment": "Mijoz iltimosiga ko'ra"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["detail"], "To'lov jadvali 1 oy keyinga surildi.")
+
+        # Refresh all payments from DB
+        updated_payments = list(self.contract.payments.order_by("month_number"))
+
+        # 1. Month 1 MUST remain untouched
+        up1 = updated_payments[0]
+        self.assertEqual(up1.due_date, date(2026, 2, 28))
+        self.assertEqual(up1.status, Payment.Status.PAID)
+        self.assertEqual(up1.comment, "1-oy to'langan")
+
+        # 2. Month 2 shifted from March 31 to April 30 (clamped to 30)
+        up2 = updated_payments[1]
+        self.assertEqual(up2.due_date, date(2026, 4, 30))
+        self.assertIn("[1 oyga surildi] Mijoz iltimosiga ko'ra", up2.comment)
+
+        # 3. Month 3 shifted from April 30 to May 31 (preserves contract day 31)
+        up3 = updated_payments[2]
+        self.assertEqual(up3.due_date, date(2026, 5, 31))
+
+        # 4. Month 12 shifted by 1 month as well
+        up12 = updated_payments[11]
+        self.assertEqual(up12.due_date, date(2027, 2, 28))
+
+        # 5. Cannot postpone already paid month 1
+        res_fail = self.client_owner.post(
+            f"/api/v1/payments/{p1.id}/postpone/",
+            {},
+            format="json",
+        )
+        self.assertEqual(res_fail.status_code, 400)
+        self.assertIn("Faqat kutilayotgan yoki qisman to'langan", res_fail.json()["detail"])
+
+        # 6. Tenant B cannot postpone Tenant A's payment
+        res_cross = self.client_other.post(
+            f"/api/v1/payments/{p2.id}/postpone/",
+            {},
+            format="json",
+        )
+        self.assertEqual(res_cross.status_code, 404)
+
 
 
 

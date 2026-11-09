@@ -3,6 +3,12 @@
 import React, { useState } from "react";
 import { X, Car as CarIcon, PlusCircle } from "lucide-react";
 import { createCar } from "@/lib/api";
+import {
+  formatPlateNumber,
+  isValidPlateNumber,
+  formatMoneyInput,
+  parseMoneyValue,
+} from "@/lib/utils";
 
 interface AddCarModalProps {
   canAddCar: boolean;
@@ -21,14 +27,26 @@ export function AddCarModal({
 }: AddCarModalProps) {
   const [name, setName] = useState("");
   const [plateNumber, setPlateNumber] = useState("");
+  const [year, setYear] = useState("");
+  const [notes, setNotes] = useState("");
   const [defaultPrice, setDefaultPrice] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !plateNumber.trim()) {
-      setError("Iltimos, mashina nomi va davlat raqamini kiriting.");
+    if (!name.trim()) {
+      setError("Iltimos, mashina nomini kiriting.");
+      return;
+    }
+
+    if (!plateNumber.trim()) {
+      setError("Iltimos, davlat raqamini kiriting.");
+      return;
+    }
+
+    if (!isValidPlateNumber(plateNumber)) {
+      setError("Davlat raqami formati noto'g'ri. Namuna: 01 A 777 AA yoki 01 777 AAA");
       return;
     }
 
@@ -38,7 +56,9 @@ export function AddCarModal({
       await createCar({
         name: name.trim(),
         plate_number: plateNumber.trim().toUpperCase(),
-        default_price: defaultPrice ? parseFloat(defaultPrice) : 0,
+        year: year ? parseInt(year, 10) : null,
+        notes: notes.trim(),
+        default_price: defaultPrice ? parseMoneyValue(defaultPrice) : 0,
       });
       onSuccess();
       onClose();
@@ -94,44 +114,80 @@ export function AddCarModal({
               required
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Masalan: Chevrolet Gentra 1.5"
+              placeholder="Chevrolet Gentra 1.5"
               className="w-full px-3.5 py-2.5 text-sm bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1.5">
-              Davlat raqami (Plate number) *
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-medium text-slate-700">
+                Davlat raqami (Plate number) *
+              </label>
+              {plateNumber && (
+                <span
+                  className={`text-[10px] font-semibold ${
+                    isValidPlateNumber(plateNumber) ? "text-emerald-600" : "text-amber-600"
+                  }`}
+                >
+                  {isValidPlateNumber(plateNumber) ? "✓ To'g'ri format" : "Format: 01 A 777 AA"}
+                </span>
+              )}
+            </div>
             <input
               type="text"
               required
               value={plateNumber}
-              onChange={(e) => setPlateNumber(e.target.value.toUpperCase())}
-              placeholder="Masalan: 01 A 777 AA"
-              className="w-full px-3.5 py-2.5 text-sm font-mono uppercase bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              onChange={(e) => setPlateNumber(formatPlateNumber(e.target.value))}
+              placeholder="01 A 777 AA"
+              className="w-full px-3.5 py-2.5 text-sm font-mono font-bold uppercase bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
             />
+          </div>
+
+          <div className="grid grid-cols-2 gap-2.5">
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1.5">
+                Yili (ixtiyoriy)
+              </label>
+              <input
+                type="number"
+                min="1990"
+                max="2099"
+                value={year}
+                onChange={(e) => setYear(e.target.value)}
+                placeholder="2023"
+                className="w-full px-3.5 py-2.5 text-sm bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1.5">
+                Taxminiy narxi ($ USD)
+              </label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-semibold">$</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={defaultPrice}
+                  onChange={(e) => setDefaultPrice(formatMoneyInput(e.target.value))}
+                  className="w-full pl-7 pr-3 py-2.5 text-sm font-semibold bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                />
+              </div>
+            </div>
           </div>
 
           <div>
             <label className="block text-xs font-medium text-slate-700 mb-1.5">
-              Taxminiy narxi ($ USD)
+              Alohida belgilari / Izoh (ixtiyoriy)
             </label>
-            <div className="relative">
-              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 font-semibold">$</span>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={defaultPrice}
-                onChange={(e) => setDefaultPrice(e.target.value)}
-                placeholder="10000.00"
-                className="w-full pl-8 pr-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-              />
-            </div>
-            <p className="text-[11px] text-slate-500 mt-1">
-              Shartnoma tuzishda mashina narxi avtomatik to'ldiriladi.
-            </p>
+            <input
+              type="text"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Gaz o'rnatilgan, oq rang"
+              className="w-full px-3.5 py-2.5 text-sm bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+            />
           </div>
 
           <div className="flex gap-3 pt-2">

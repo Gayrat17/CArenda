@@ -41,7 +41,7 @@ export function CloseContractModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-xs p-0 sm:p-4">
+    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-xs p-0 sm:p-4">
       <div className="w-full max-w-md bg-white rounded-t-3xl sm:rounded-2xl shadow-xl overflow-hidden animate-in fade-in slide-in-from-bottom duration-200">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
           <div className="flex items-center gap-2">
@@ -87,7 +87,7 @@ export function CloseContractModal({
               rows={2}
               value={closeNote}
               onChange={(e) => setCloseNote(e.target.value)}
-              placeholder="Masalan: Mashina muddatidan oldin qaytarildi / To'liq hisob-kitob qilindi"
+              placeholder="Mashina muddatidan oldin qaytarildi / To'liq hisob-kitob qilindi"
               className="w-full px-3.5 py-2 text-sm bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500"
             />
           </div>

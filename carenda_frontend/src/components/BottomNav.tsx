@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { LayoutDashboard, Car, PlusCircle, Settings } from "lucide-react";
+import { LayoutDashboard, FileText, PlusCircle, Settings } from "lucide-react";
 
 export type NavTab = "dashboard" | "cars" | "contract" | "settings";
 
@@ -21,12 +21,12 @@ export function BottomNav({ activeTab, onTabChange, overdueCount = 0 }: BottomNa
     },
     {
       id: "cars" as NavTab,
-      label: "Mashinalar",
-      icon: Car,
+      label: "Shartnomalar",
+      icon: FileText,
     },
     {
       id: "contract" as NavTab,
-      label: "Shartnoma",
+      label: "Qo'shish",
       icon: PlusCircle,
       highlight: true,
     },

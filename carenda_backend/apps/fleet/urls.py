@@ -14,6 +14,7 @@ from apps.fleet.views import (
     ExportExcelAPIView,
     OverduePaymentsAPIView,
     PaymentPayAPIView,
+    PaymentPostponeAPIView,
     UserScheduleAPIView,
 )
 
@@ -44,6 +45,7 @@ urlpatterns = [
     # Payments
     path("payments/overdue/", OverduePaymentsAPIView.as_view(), name="fleet-payments-overdue"),
     path("payments/<int:pk>/pay/", PaymentPayAPIView.as_view(), name="fleet-payment-pay"),
+    path("payments/<int:pk>/postpone/", PaymentPostponeAPIView.as_view(), name="fleet-payment-postpone"),
 
     # Client / User (Driver) Read-only Schedule
     path("my-schedule/", UserScheduleAPIView.as_view(), name="my-schedule"),

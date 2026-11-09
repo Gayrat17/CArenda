@@ -4,18 +4,18 @@ import React, { useState, useEffect } from "react";
 import { User as UserIcon, Shield, Check, Save, Sparkles, AlertCircle, Copy, Lock } from "lucide-react";
 import { User as UserType } from "@/types/fleet";
 import { updateMe } from "@/lib/api";
-import { formatDateTime } from "@/lib/utils";
+import { formatDateTime, formatPercent } from "@/lib/utils";
 import { resolveUserIdentity } from "@/lib/identity";
 
 interface SettingsTabProps {
   user: UserType | null;
-  onRefreshUser: () => void;
+  onRefreshUser: (updatedUser?: UserType) => void;
 }
 
 export function SettingsTab({ user, onRefreshUser }: SettingsTabProps) {
   const [fullName, setFullName] = useState(user?.full_name || "");
   const [defaultPercent, setDefaultPercent] = useState(
-    user?.default_annual_percent || "20.00"
+    formatPercent(user?.default_annual_percent) || "20"
   );
   const [loading, setLoading] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
@@ -27,8 +27,8 @@ export function SettingsTab({ user, onRefreshUser }: SettingsTabProps) {
   useEffect(() => {
     if (user) {
       setFullName(user.full_name || "");
-      if (user.default_annual_percent) {
-        setDefaultPercent(user.default_annual_percent);
+      if (user.default_annual_percent !== undefined && user.default_annual_percent !== null) {
+        setDefaultPercent(formatPercent(user.default_annual_percent));
       }
     }
   }, [user]);
@@ -40,15 +40,17 @@ export function SettingsTab({ user, onRefreshUser }: SettingsTabProps) {
       setError(null);
       setSavedSuccess(false);
 
+      const intPercent = Math.round(parseFloat(defaultPercent)) || 20;
+
       const payload = {
         full_name: fullName.trim(),
-        default_annual_percent: parseFloat(defaultPercent) || 20,
+        default_annual_percent: intPercent,
       };
 
-      await updateMe(payload);
+      const updated = await updateMe(payload);
 
       setSavedSuccess(true);
-      onRefreshUser();
+      onRefreshUser(updated);
       setTimeout(() => setSavedSuccess(false), 3000);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Sozlamalarni saqlashda xatolik.");
@@ -57,7 +59,7 @@ export function SettingsTab({ user, onRefreshUser }: SettingsTabProps) {
     }
   };
 
-  const presetPercents = ["15.00", "20.00", "25.00", "30.00"];
+  const presetPercents = ["15", "20", "25", "30"];
 
   const handleCopyCode = async () => {
     if (!user?.tenant_code) return;
@@ -243,7 +245,7 @@ export function SettingsTab({ user, onRefreshUser }: SettingsTabProps) {
               required
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
-              placeholder="Masalan: Jamshid Karimov"
+              placeholder="Jamshid Karimov"
               className="w-full px-3.5 py-2.5 text-sm bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
             />
           </div>
@@ -294,12 +296,12 @@ export function SettingsTab({ user, onRefreshUser }: SettingsTabProps) {
             <div className="relative">
               <input
                 type="number"
-                step="0.01"
+                step="1"
                 min="0"
+                max="100"
                 required
                 value={defaultPercent}
                 onChange={(e) => setDefaultPercent(e.target.value)}
-                placeholder="20.00"
                 className="w-full px-3.5 py-2.5 text-base font-bold bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
               />
               <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 font-bold">%</span>
@@ -313,12 +315,12 @@ export function SettingsTab({ user, onRefreshUser }: SettingsTabProps) {
                   type="button"
                   onClick={() => setDefaultPercent(p)}
                   className={`py-1.5 px-2 text-xs font-semibold rounded-lg border transition ${
-                    parseFloat(defaultPercent) === parseFloat(p)
+                    parseInt(defaultPercent, 10) === parseInt(p, 10)
                       ? "bg-blue-600 text-white border-blue-600 shadow-xs"
                       : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
                   }`}
                 >
-                  {parseFloat(p)}%
+                  {p}%
                 </button>
               ))}
             </div>

@@ -33,6 +33,16 @@ class Car(models.Model):
     )
     name = models.CharField(max_length=100, verbose_name="Car Name / Model")
     plate_number = models.CharField(max_length=20, verbose_name="Plate Number")
+    year = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        verbose_name="Manufacture Year",
+    )
+    notes = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="Special Features / Notes",
+    )
     default_price = models.DecimalField(
         max_digits=12,
         decimal_places=2,
@@ -84,6 +94,12 @@ class Driver(models.Model):
     )
     full_name = models.CharField(max_length=150, verbose_name="Full Name")
     phone = models.CharField(max_length=25, verbose_name="Phone Number")
+    secondary_phone = models.CharField(
+        max_length=150,
+        blank=True,
+        default="",
+        verbose_name="Secondary Phone Number(s)",
+    )
     passport_info = models.CharField(
         max_length=50, blank=True, verbose_name="Passport Info"
     )
@@ -100,6 +116,16 @@ class Driver(models.Model):
     @property
     def normalized_phone(self) -> str:
         return normalize_phone(self.phone)
+
+    @property
+    def all_phones(self) -> list[str]:
+        phones = [self.phone] if self.phone else []
+        if self.secondary_phone:
+            for part in re.split(r"[,;/\n]+", self.secondary_phone):
+                part = part.strip()
+                if part and part not in phones:
+                    phones.append(part)
+        return phones
 
     def __str__(self):
         return f"{self.full_name} ({self.phone})"

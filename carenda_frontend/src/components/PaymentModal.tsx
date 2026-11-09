@@ -1,9 +1,9 @@
 "use client";
 
 import React, { useState } from "react";
-import { X, DollarSign, CheckCircle2 } from "lucide-react";
-import { recordPayment } from "@/lib/api";
-import { formatUSD } from "@/lib/utils";
+import { X, DollarSign, CheckCircle2, Calendar, AlertTriangle } from "lucide-react";
+import { recordPayment, postponePayment } from "@/lib/api";
+import { formatUSD, formatMoneyInput, parseMoneyValue } from "@/lib/utils";
 
 interface PaymentTarget {
   id: number;
@@ -24,9 +24,13 @@ interface PaymentModalProps {
 }
 
 export function PaymentModal({ payment, onClose, onSuccess }: PaymentModalProps) {
-  const [amount, setAmount] = useState(payment ? payment.remaining_amount : "");
+  const [amount, setAmount] = useState(
+    payment ? formatMoneyInput(payment.remaining_amount) : ""
+  );
   const [comment, setComment] = useState("");
   const [loading, setLoading] = useState(false);
+  const [postponing, setPostponing] = useState(false);
+  const [confirmPostpone, setConfirmPostpone] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   if (!payment) return null;
@@ -35,7 +39,7 @@ export function PaymentModal({ payment, onClose, onSuccess }: PaymentModalProps)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const payVal = parseFloat(amount);
+    const payVal = parseMoneyValue(amount);
     if (isNaN(payVal) || payVal <= 0) {
       setError("Iltimos, to'g'ri to'lov summasini kiriting.");
       return;
@@ -46,7 +50,7 @@ export function PaymentModal({ payment, onClose, onSuccess }: PaymentModalProps)
       setError(null);
       await recordPayment(payment.id, {
         amount: payVal,
-        comment,
+        comment: comment.trim(),
       });
       onSuccess();
       onClose();
@@ -57,8 +61,23 @@ export function PaymentModal({ payment, onClose, onSuccess }: PaymentModalProps)
     }
   };
 
+  const handlePostpone = async () => {
+    try {
+      setPostponing(true);
+      setError(null);
+      await postponePayment(payment.id, comment.trim());
+      onSuccess();
+      onClose();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "To'lovni surishda xatolik yuz berdi.");
+      setConfirmPostpone(false);
+    } finally {
+      setPostponing(false);
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-xs p-0 sm:p-4">
+    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-xs p-0 sm:p-4">
       <div className="w-full max-w-md bg-white rounded-t-3xl sm:rounded-2xl shadow-xl overflow-hidden animate-in fade-in slide-in-from-bottom duration-200">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
           <div className="flex items-center gap-2">
@@ -66,7 +85,7 @@ export function PaymentModal({ payment, onClose, onSuccess }: PaymentModalProps)
               <DollarSign className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-semibold text-slate-900 text-base">To'lov qabul qilish</h3>
+              <h3 className="font-semibold text-slate-900 text-base">To&apos;lov qabul qilish</h3>
               <p className="text-xs text-slate-500">
                 {payment.month_number ? `${payment.month_number}-oy to'lovi` : "Ijara to'lovi"}
               </p>
@@ -74,7 +93,7 @@ export function PaymentModal({ payment, onClose, onSuccess }: PaymentModalProps)
           </div>
           <button
             onClick={onClose}
-            className="p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100"
+            className="p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -98,15 +117,15 @@ export function PaymentModal({ payment, onClose, onSuccess }: PaymentModalProps)
             {payment.driver_name && (
               <div className="flex justify-between">
                 <span className="text-slate-500">Haydovchi:</span>
-                <span className="font-medium text-slate-900">{payment.driver_name}</span>
+                <span className="font-medium text-slate-900 capitalize">{payment.driver_name}</span>
               </div>
             )}
             <div className="flex justify-between">
-              <span className="text-slate-500">Oylik to'lov summasi:</span>
+              <span className="text-slate-500">Oylik to&apos;lov summasi:</span>
               <span className="font-medium text-slate-900">{formatUSD(payment.expected_amount)}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-slate-500">To'langan:</span>
+              <span className="text-slate-500">To&apos;langan:</span>
               <span className="font-medium text-emerald-600">{formatUSD(payment.paid_amount)}</span>
             </div>
             <div className="flex justify-between border-t border-slate-200/80 pt-1.5 font-semibold">
@@ -118,18 +137,16 @@ export function PaymentModal({ payment, onClose, onSuccess }: PaymentModalProps)
           {/* Amount input */}
           <div>
             <label className="block text-xs font-medium text-slate-700 mb-1.5">
-              To'lanayotgan summa ($ USD) *
+              To&apos;lanayotgan summa ($ USD) *
             </label>
             <div className="relative">
               <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 font-semibold">$</span>
               <input
-                type="number"
-                step="0.01"
-                min="0.01"
+                type="text"
+                inputMode="decimal"
                 required
                 value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder="0.00"
+                onChange={(e) => setAmount(formatMoneyInput(e.target.value))}
                 className="w-full pl-8 pr-4 py-2.5 text-base font-semibold bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
               />
             </div>
@@ -137,16 +154,16 @@ export function PaymentModal({ payment, onClose, onSuccess }: PaymentModalProps)
             <div className="flex gap-2 mt-2">
               <button
                 type="button"
-                onClick={() => setAmount(remaining.toFixed(2))}
-                className="px-2.5 py-1 text-xs font-medium bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-lg transition"
+                onClick={() => setAmount(formatMoneyInput(remaining.toFixed(2)))}
+                className="px-2.5 py-1 text-xs font-medium bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-lg transition cursor-pointer"
               >
-                To'liq: {formatUSD(remaining)}
+                To&apos;liq: {formatUSD(remaining)}
               </button>
               {remaining > 100 && (
                 <button
                   type="button"
-                  onClick={() => setAmount((remaining / 2).toFixed(2))}
-                  className="px-2.5 py-1 text-xs font-medium bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg transition"
+                  onClick={() => setAmount(formatMoneyInput((remaining / 2).toFixed(2)))}
+                  className="px-2.5 py-1 text-xs font-medium bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg transition cursor-pointer"
                 >
                   50%: {formatUSD(remaining / 2)}
                 </button>
@@ -163,9 +180,51 @@ export function PaymentModal({ payment, onClose, onSuccess }: PaymentModalProps)
               type="text"
               value={comment}
               onChange={(e) => setComment(e.target.value)}
-              placeholder="Masalan: Naqd berildi / Karta orqali"
+              placeholder="Naqd berildi / Karta orqali"
               className="w-full px-3.5 py-2 text-sm bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
             />
+          </div>
+
+          {/* Postpone Schedule Action */}
+          <div className="pt-1">
+            {!confirmPostpone ? (
+              <button
+                type="button"
+                onClick={() => setConfirmPostpone(true)}
+                disabled={loading || postponing}
+                className="w-full py-2.5 px-3.5 bg-amber-50 hover:bg-amber-100 active:scale-98 text-amber-800 border border-amber-200 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                <Calendar className="w-4 h-4 text-amber-600" />
+                📅 To&apos;lovni 1 oy keyinga surish
+              </button>
+            ) : (
+              <div className="p-3 bg-amber-50 border border-amber-200 text-amber-900 text-xs rounded-xl space-y-2.5 animate-in fade-in duration-150">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <p className="font-medium leading-relaxed">
+                    Ushbu oy va undan keyingi barcha to&apos;lanmagan oylar sanasi 1 oy keyinga suriladi. Tasdiqlaysizmi?
+                  </p>
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={handlePostpone}
+                    disabled={postponing}
+                    className="flex-1 py-2 px-3 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-semibold rounded-lg text-xs transition cursor-pointer disabled:opacity-50"
+                  >
+                    {postponing ? "Surilmoqda..." : "Ha, 1 oyga surilsin"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmPostpone(false)}
+                    disabled={postponing}
+                    className="py-2 px-3 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 active:scale-95 rounded-lg text-xs font-medium transition cursor-pointer"
+                  >
+                    Bekor qilish
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Action buttons */}
@@ -173,15 +232,15 @@ export function PaymentModal({ payment, onClose, onSuccess }: PaymentModalProps)
             <button
               type="button"
               onClick={onClose}
-              disabled={loading}
-              className="flex-1 py-2.5 px-4 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition"
+              disabled={loading || postponing}
+              className="flex-1 py-2.5 px-4 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition cursor-pointer"
             >
               Bekor qilish
             </button>
             <button
               type="submit"
-              disabled={loading}
-              className="flex-1 flex items-center justify-center gap-1.5 py-2.5 px-4 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition shadow-sm disabled:opacity-50"
+              disabled={loading || postponing || confirmPostpone}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2.5 px-4 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95 rounded-xl transition shadow-sm disabled:opacity-50 cursor-pointer"
             >
               <CheckCircle2 className="w-4 h-4" />
               {loading ? "Saqlanmoqda..." : "Tasdiqlash"}

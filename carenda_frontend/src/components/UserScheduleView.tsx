@@ -216,6 +216,22 @@ export function UserScheduleView({ user, initialContracts, onRefreshUser }: User
               </div>
             </div>
 
+            {/* Contract Dates & Period */}
+            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-white/10 text-xs">
+              <div>
+                <p className="text-[10px] text-slate-400">Boshlanish sanasi:</p>
+                <p className="font-semibold text-slate-200 mt-0.5">
+                  {formatDate(activeContract.start_date)}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] text-slate-400">Ijara muddati:</p>
+                <p className="font-semibold text-slate-200 mt-0.5">
+                  {activeContract.months_count} oy ({activeContract.payment_day}-sana)
+                </p>
+              </div>
+            </div>
+
             {/* Financial Overview Grid */}
             <div className="grid grid-cols-2 gap-2 pt-3 border-t border-white/10 text-xs">
               <div className="p-3 bg-white/5 rounded-2xl">

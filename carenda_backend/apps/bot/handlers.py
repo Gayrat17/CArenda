@@ -221,7 +221,8 @@ def match_and_register_user_driver(
     drivers = Driver.objects.filter(owner_id=target_owner_id)
     matched_driver = None
     for d in drivers:
-        if normalize_phone(d.phone) == normalized_incoming:
+        driver_norm_phones = [normalize_phone(p) for p in d.all_phones]
+        if normalized_incoming in driver_norm_phones:
             matched_driver = d
             break
 
@@ -590,7 +591,7 @@ async def handle_subscription_info(message: Message):
             "plan": owner.plan.title(),
             "cars_count": owner.cars.count(),
             "cars_limit": owner.cars_limit,
-            "percent": setting.default_annual_percent,
+            "percent": int(round(setting.default_annual_percent)),
             "expires_at": (
                 owner.expires_at.strftime("%d.%m.%Y %H:%M")
                 if owner.expires_at

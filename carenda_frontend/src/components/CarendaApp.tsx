@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { getBootstrap, getCachedBootstrapSync, getDrivers } from "@/lib/api";
 import {
   BootstrapResponse,
@@ -52,7 +52,7 @@ export function CarendaApp() {
           expires_at: "",
           is_subscription_active: true,
           can_add_car: true,
-          default_annual_percent: "20.00",
+          default_annual_percent: "20",
           is_registered: true,
         };
       }
@@ -122,8 +122,38 @@ export function CarendaApp() {
     if (typeof window !== "undefined" && window.Telegram?.WebApp) {
       window.Telegram.WebApp.ready?.();
       window.Telegram.WebApp.expand?.();
+      try {
+        window.Telegram.WebApp.disableVerticalSwipes?.();
+      } catch {
+        // ignore if not supported in current client
+      }
     }
     loadData();
+
+    // Prevent multi-touch pinch-to-zoom and gesture zooming across mobile browsers
+    const handleTouchMove = (e: TouchEvent) => {
+      if (e.touches.length > 1) {
+        e.preventDefault();
+      }
+    };
+    const handleGesture = (e: Event) => {
+      e.preventDefault();
+    };
+
+    document.addEventListener("touchmove", handleTouchMove, { passive: false });
+    document.addEventListener("gesturestart", handleGesture);
+
+    return () => {
+      document.removeEventListener("touchmove", handleTouchMove);
+      document.removeEventListener("gesturestart", handleGesture);
+    };
+  }, [loadData]);
+
+  const [detailRefreshTrigger, setDetailRefreshTrigger] = useState(0);
+
+  const handlePaymentSuccess = useCallback(async () => {
+    await loadData(true);
+    setDetailRefreshTrigger((prev) => prev + 1);
   }, [loadData]);
 
   // Handlers for payments
@@ -173,6 +203,10 @@ export function CarendaApp() {
   };
 
   const overdueCount = dashboard?.overdue_payments?.length || 0;
+  const overdueContractIds = useMemo(
+    () => new Set(dashboard?.overdue_payments?.map((p) => p.contract_id) || []),
+    [dashboard?.overdue_payments]
+  );
 
   // Unregistered user check (phone verification required in Telegram Bot)
   if (user && user.is_registered === false) {
@@ -232,6 +266,7 @@ export function CarendaApp() {
         <CarsTab
           cars={cars}
           loading={loading}
+          overdueContractIds={overdueContractIds}
           onNavigateTab={setActiveTab}
           onSelectCar={(id) => setSelectedCarForDetailId(id)}
         />
@@ -249,7 +284,15 @@ export function CarendaApp() {
       )}
 
       {activeTab === "settings" && (
-        <SettingsTab user={user} onRefreshUser={loadData} />
+        <SettingsTab
+          user={user}
+          onRefreshUser={(updatedUser) => {
+            if (updatedUser) {
+              setUser(updatedUser);
+            }
+            loadData(true);
+          }}
+        />
       )}
 
       {/* Sticky Bottom Navigation Bar */}
@@ -267,19 +310,21 @@ export function CarendaApp() {
       {/* Modals */}
       {activePaymentTarget && (
         <PaymentModal
+          key={activePaymentTarget.id}
           payment={activePaymentTarget}
           onClose={() => setActivePaymentTarget(null)}
-          onSuccess={loadData}
+          onSuccess={handlePaymentSuccess}
         />
       )}
 
       {selectedCarForDetailId && (
         <CarDetailModal
           carId={selectedCarForDetailId}
+          refreshTrigger={detailRefreshTrigger}
           onClose={() => setSelectedCarForDetailId(null)}
           onRentClick={handleRentCar}
           onPaymentClick={handleOpenSchedulePayment}
-          onRefreshParent={loadData}
+          onRefreshParent={handlePaymentSuccess}
         />
       )}
     </main>

@@ -32,6 +32,7 @@ from apps.fleet.services import (
     create_car_service,
     create_contract_service,
     invalidate_tenant_cache,
+    postpone_contract_payments_service,
     record_payment_service,
 )
 from apps.users.models import User, UserSetting
@@ -43,10 +44,11 @@ class IsArendator(BasePermission):
     message = "Ushbu amalni bajarish uchun sizda arendator huquqi yo'q."
 
     def has_permission(self, request, view):
+        role = (getattr(request.user, "role", "") or "").lower()
         return bool(
             request.user
             and request.user.is_authenticated
-            and request.user.role in (User.RoleChoices.ARENDATOR, User.RoleChoices.SUPERADMIN)
+            and role in (User.RoleChoices.ARENDATOR, "owner", User.RoleChoices.SUPERADMIN)
         )
 
 
@@ -169,7 +171,8 @@ def get_user_schedule_data(user):
         if normalized_user_phone:
             drivers_qs = Driver.objects.filter(owner_id=user.parent_owner_id or 0)
             for d in drivers_qs:
-                if normalize_phone(d.phone) == normalized_user_phone:
+                norm_phones = [normalize_phone(p) for p in d.all_phones]
+                if normalized_user_phone in norm_phones:
                     driver = d
                     if not d.user_id:
                         d.user = user
@@ -231,7 +234,7 @@ def get_user_schedule_data(user):
                 "principal_amount": f"{c.principal_amount:.2f}",
                 "total_amount": f"{c.total_amount:.2f}",
                 "monthly_amount": f"{c.monthly_amount:.2f}",
-                "annual_percent": f"{c.annual_percent:.2f}",
+                "annual_percent": f"{int(round(c.annual_percent))}",
                 "months_count": c.months_count,
                 "payment_day": c.payment_day,
                 "start_date": str(c.start_date),
@@ -260,15 +263,16 @@ class BootstrapAPIView(APIView):
 
     def get(self, request):
         today = timezone.localdate()
-        cache_key = f"tenant_bootstrap:{request.user.id}:{today.isoformat()}"
+        owner = request.user.tenant_owner if hasattr(request.user, "tenant_owner") else request.user
+        cache_key = f"tenant_bootstrap:{owner.id}:{today.isoformat()}"
         cached_data = cache.get(cache_key)
         if cached_data is not None:
             return Response(cached_data)
 
         me_data = UserMeSerializer(request.user).data
 
-        if request.user.role in (User.RoleChoices.ARENDATOR, User.RoleChoices.SUPERADMIN):
-            owner = request.user.tenant_owner
+        role = (request.user.role or "").lower()
+        if role in (User.RoleChoices.ARENDATOR, "owner", User.RoleChoices.SUPERADMIN):
             dashboard_data = get_dashboard_data_for_owner(owner, today)
             cars_data = get_cars_data_for_owner(owner)
             user_schedule_data = None
@@ -472,13 +476,18 @@ class ContractListCreateAPIView(APIView):
             car = get_object_or_404(Car, id=car_id, owner=owner)
 
         driver_id = data.get("driver_id")
+        driver_secondary_phone = (data.get("driver_secondary_phone") or "").strip()
         if driver_id:
             driver = get_object_or_404(Driver, id=driver_id, owner=owner)
+            if driver_secondary_phone and not driver.secondary_phone:
+                driver.secondary_phone = driver_secondary_phone
+                driver.save(update_fields=["secondary_phone"])
         else:
             driver = Driver.objects.create(
                 owner=owner,
                 full_name=data["driver_full_name"].strip(),
                 phone=data["driver_phone"].strip(),
+                secondary_phone=driver_secondary_phone,
             )
 
         try:
@@ -487,6 +496,8 @@ class ContractListCreateAPIView(APIView):
                 car=car,
                 car_name=data.get("car_name"),
                 plate_number=data.get("plate_number"),
+                car_year=data.get("car_year"),
+                car_notes=data.get("car_notes"),
                 driver=driver,
                 car_price=data["car_price"],
                 initial_payment=data.get("initial_payment", Decimal("0.00")),
@@ -602,6 +613,35 @@ class PaymentPayAPIView(APIView):
             return Response({"detail": msg}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response(PaymentSerializer(updated_payment).data)
+
+
+class PaymentPostponeAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsArendator]
+
+    def post(self, request, pk):
+        owner = request.user.tenant_owner
+        payment = get_object_or_404(
+            Payment.objects.select_related("contract"),
+            pk=pk,
+            contract__owner=owner,
+        )
+        comment = (request.data.get("comment") or "").strip()
+
+        try:
+            updated_payments = postpone_contract_payments_service(
+                owner=owner, payment=payment, comment=comment
+            )
+        except DjangoValidationError as e:
+            msg = e.messages[0] if hasattr(e, "messages") else str(e)
+            return Response({"detail": msg}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(
+            {
+                "detail": "To'lov jadvali 1 oy keyinga surildi.",
+                "payments": PaymentSerializer(updated_payments, many=True).data,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class ExportExcelAPIView(APIView):

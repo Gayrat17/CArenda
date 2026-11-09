@@ -97,6 +97,8 @@ export interface Car {
   name: string;
   plate_number: string;
   default_price: string;
+  year?: number | null;
+  notes?: string;
   status: CarStatus;
   created_at: string;
 }
@@ -113,12 +115,16 @@ export interface CarDetail extends Car {
 export interface CarCreatePayload {
   name: string;
   plate_number: string;
+  year?: number | null;
+  notes?: string;
   default_price?: string | number;
 }
 
 export interface CarUpdatePayload {
   name?: string;
   plate_number?: string;
+  year?: number | null;
+  notes?: string;
   default_price?: string | number;
   status?: CarStatus;
 }
@@ -127,6 +133,7 @@ export interface Driver {
   id: number;
   full_name: string;
   phone: string;
+  secondary_phone?: string;
   passport_info: string;
   notes: string;
   created_at: string;
@@ -135,6 +142,7 @@ export interface Driver {
 export interface DriverCreatePayload {
   full_name: string;
   phone: string;
+  secondary_phone?: string;
   passport_info?: string;
   notes?: string;
 }
@@ -144,9 +152,12 @@ export interface ContractSummary {
   car: number;
   car_name: string;
   plate_number: string;
+  car_year?: number | null;
+  car_notes?: string;
   driver: number;
   driver_name: string;
   driver_phone: string;
+  driver_secondary_phone?: string;
   car_price: string;
   initial_payment: string;
   annual_percent: string;
@@ -225,9 +236,12 @@ export interface CreateContractPayload {
   car_id?: number;
   car_name?: string;
   plate_number?: string;
+  car_year?: number | null;
+  car_notes?: string;
   driver_id?: number;
   driver_full_name?: string;
   driver_phone?: string;
+  driver_secondary_phone?: string;
   car_price: string | number;
   initial_payment?: string | number;
   annual_percent?: string | number | null;

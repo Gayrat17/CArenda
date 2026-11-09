@@ -38,6 +38,7 @@ declare global {
         close?: () => void;
         ready?: () => void;
         expand?: () => void;
+        disableVerticalSwipes?: () => void;
         [key: string]: unknown;
       };
     };
@@ -209,14 +210,38 @@ export async function apiFetch<T>(
   }
 
   if (!response.ok) {
-    let errorBody: string;
+    let rawText = "";
     try {
-      const errorData = await response.json();
-      errorBody =
-        errorData.detail || errorData.message || JSON.stringify(errorData);
+      rawText = await response.text();
     } catch {
-      errorBody = await response.text();
+      rawText = "";
     }
+
+    let errorBody = "";
+    if (rawText) {
+      try {
+        const errorData = JSON.parse(rawText);
+        errorBody =
+          errorData.detail ||
+          errorData.message ||
+          (typeof errorData === "string" ? errorData : JSON.stringify(errorData));
+      } catch {
+        errorBody = rawText;
+      }
+    }
+
+    if (
+      response.status === 502 ||
+      response.status === 503 ||
+      response.status === 504 ||
+      errorBody.includes("ECONNREFUSED") ||
+      errorBody.includes("Failed to proxy")
+    ) {
+      throw new Error(
+        "Backend serverga ulanib bo'lmadi (127.0.0.1:8000). Iltimos, Django backend serverni ishga tushiring."
+      );
+    }
+
     throw new Error(errorBody || `HTTP error ${response.status}`);
   }
 
@@ -364,10 +389,27 @@ export async function recordPayment(
   paymentId: number,
   payload: RecordPaymentPayload
 ): Promise<Payment> {
-  return apiFetch<Payment>(`/payments/${paymentId}/pay/`, {
+  const result = await apiFetch<Payment>(`/payments/${paymentId}/pay/`, {
     method: "POST",
     body: JSON.stringify(payload),
   });
+  clearApiCache();
+  return result;
+}
+
+export async function postponePayment(
+  paymentId: number,
+  comment?: string
+): Promise<{ detail: string; payments: Payment[] }> {
+  const result = await apiFetch<{ detail: string; payments: Payment[] }>(
+    `/payments/${paymentId}/postpone/`,
+    {
+      method: "POST",
+      body: JSON.stringify({ comment }),
+    }
+  );
+  clearApiCache();
+  return result;
 }
 
 // Excel Export

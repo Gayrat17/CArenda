@@ -104,6 +104,8 @@ class User(AbstractUser):
         ]
 
     def save(self, *args, **kwargs):
+        if self.role:
+            self.role = self.role.lower()
         # Auto-generate unique tenant_code ONLY for arendator if not set
         if self.role == self.RoleChoices.ARENDATOR and not self.tenant_code:
             while True:

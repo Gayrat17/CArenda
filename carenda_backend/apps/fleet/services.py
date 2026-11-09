@@ -84,6 +84,8 @@ def create_car_service(
     name: str,
     plate_number: str,
     default_price: Decimal = Decimal("0.00"),
+    year: int | None = None,
+    notes: str = "",
 ) -> Car:
     """
     Validates tenant subscription and vehicle limits before creating a new car.
@@ -101,6 +103,8 @@ def create_car_service(
         name=name.strip(),
         plate_number=normalized_plate,
         default_price=default_price,
+        year=year,
+        notes=notes.strip() if notes else "",
         status=Car.Status.AVAILABLE,
     )
     invalidate_tenant_cache(owner.id, getattr(owner, "telegram_id", None))
@@ -114,6 +118,8 @@ def create_contract_service(
     car: Car | None = None,
     car_name: str | None = None,
     plate_number: str | None = None,
+    car_year: int | None = None,
+    car_notes: str | None = None,
     driver: Driver,
     car_price: Decimal,
     initial_payment: Decimal,
@@ -146,7 +152,14 @@ def create_contract_service(
             existing_car.name = car_name.strip()
             existing_car.default_price = car_price
             existing_car.status = Car.Status.AVAILABLE
-            existing_car.save(update_fields=["name", "default_price", "status"])
+            update_fields = ["name", "default_price", "status"]
+            if car_year is not None:
+                existing_car.year = car_year
+                update_fields.append("year")
+            if car_notes is not None:
+                existing_car.notes = car_notes.strip()
+                update_fields.append("notes")
+            existing_car.save(update_fields=update_fields)
             car = existing_car
         else:
             car = create_car_service(
@@ -154,6 +167,8 @@ def create_contract_service(
                 name=car_name.strip(),
                 plate_number=normalized_plate,
                 default_price=car_price,
+                year=car_year,
+                notes=car_notes or "",
             )
     else:
         if car.owner_id != owner.id or driver.owner_id != owner.id:
@@ -164,6 +179,17 @@ def create_contract_service(
 
         if Contract.objects.filter(car=car, is_active=True).exists():
             raise ValidationError("Ushbu avtomobil bo'yicha faol shartnoma mavjud.")
+
+        # Update car year and notes if provided
+        car_update_fields = []
+        if car_year is not None and car.year != car_year:
+            car.year = car_year
+            car_update_fields.append("year")
+        if car_notes is not None and car.notes != car_notes.strip():
+            car.notes = car_notes.strip()
+            car_update_fields.append("notes")
+        if car_update_fields:
+            car.save(update_fields=car_update_fields)
 
     if driver.owner_id != owner.id:
         raise ValidationError("Avtomobil yoki haydovchi sizga tegishli emas.")
@@ -260,7 +286,10 @@ def record_payment_service(
 
         def _safe_dispatch():
             try:
-                send_payment_receipt_notification_task.delay(payment_id, amount_str)
+                send_payment_receipt_notification_task.apply_async(
+                    args=(payment_id, amount_str),
+                    retry=False,
+                )
             except Exception:
                 pass
 
@@ -269,6 +298,59 @@ def record_payment_service(
         pass
 
     return payment
+
+
+@transaction.atomic
+def postpone_contract_payments_service(
+    *,
+    owner: User,
+    payment: Payment,
+    comment: str = "",
+) -> list[Payment]:
+    """
+    Shifts the current unpaid installment and all subsequent unpaid installments
+    forward by exactly 1 calendar month, clamping to the contract payment day.
+    Appends a postponement note to the triggered payment's comment.
+    """
+    if payment.contract.owner_id != owner.id:
+        raise ValidationError("Ushbu to'lov sizga tegishli emas.")
+
+    if not payment.contract.is_active:
+        raise ValidationError("Yopilgan shartnoma to'lovlarini surib bo'lmaydi.")
+
+    if payment.status in (Payment.Status.PAID, Payment.Status.CANCELLED):
+        raise ValidationError("Faqat kutilayotgan yoki qisman to'langan to'lovlarni surish mumkin.")
+
+    payments_to_shift = list(
+        Payment.objects.filter(
+            contract=payment.contract,
+            status__in=[Payment.Status.PENDING, Payment.Status.PARTIAL],
+            month_number__gte=payment.month_number,
+        ).order_by("month_number")
+    )
+
+    if not payments_to_shift:
+        raise ValidationError("Surish uchun to'lovlar topilmadi.")
+
+    contract_day = payment.contract.payment_day
+    for p in payments_to_shift:
+        target = p.due_date + relativedelta(months=1)
+        max_days = calendar.monthrange(target.year, target.month)[1]
+        p.due_date = date(target.year, target.month, min(contract_day, max_days))
+
+    clean_comment = (comment or "").strip()
+    note = f"[1 oyga surildi] {clean_comment}" if clean_comment else "[1 oyga surildi]"
+    for p in payments_to_shift:
+        if p.id == payment.id:
+            if p.comment:
+                p.comment = f"{p.comment} | {note}" if note not in p.comment else p.comment
+            else:
+                p.comment = note
+            payment.comment = p.comment
+
+    Payment.objects.bulk_update(payments_to_shift, ["due_date", "comment"])
+    invalidate_tenant_cache(owner.id, getattr(owner, "telegram_id", None))
+    return payments_to_shift
 
 
 @transaction.atomic

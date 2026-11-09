@@ -32,7 +32,8 @@ class MeAPIView(APIView):
             user.save(update_fields=user_fields_to_update)
 
         if "default_annual_percent" in validated_data:
-            if user.role != User.RoleChoices.ARENDATOR and not user.is_superadmin:
+            user_role = (user.role or "").lower()
+            if user_role not in (User.RoleChoices.ARENDATOR, "owner", User.RoleChoices.SUPERADMIN) and not user.is_superadmin:
                 return Response(
                     {"error": "Faqat arendator (rahbar) standart foiz stavkasini o'zgartirishi mumkin."},
                     status=status.HTTP_403_FORBIDDEN,
