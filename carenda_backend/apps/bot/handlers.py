@@ -172,6 +172,11 @@ def register_owner_user(from_user, phone_number: str) -> User:
     if not cleaned_phone.startswith("+"):
         cleaned_phone = f"+{cleaned_phone}"
 
+    from apps.users.models import SubscriptionSettings
+    sub_settings = SubscriptionSettings.get_settings()
+    now = timezone.now()
+    trial_end = now + timedelta(days=sub_settings.free_duration_days)
+
     user, created = User.objects.get_or_create(
         telegram_id=tg_id,
         defaults={
@@ -181,10 +186,11 @@ def register_owner_user(from_user, phone_number: str) -> User:
             "last_name": last_name,
             "phone": cleaned_phone,
             "role": User.RoleChoices.ARENDATOR,
-            "plan": User.Plan.TRIAL,
-            "cars_limit": 2,
+            "plan": User.Plan.FREE,
+            "cars_limit": sub_settings.free_max_contracts,
             "is_registered": True,
-            "expires_at": timezone.now() + timedelta(days=14),
+            "trial_ends_at": trial_end,
+            "expires_at": trial_end,
         },
     )
 
@@ -583,22 +589,54 @@ async def handle_subscription_info(message: Message):
 
     @sync_to_async
     def get_user_sub_details():
+        from apps.users.models import SubscriptionSettings
         owner = user.tenant_owner
         setting, _ = UserSetting.objects.get_or_create(owner=owner)
+        sub_settings = SubscriptionSettings.get_settings()
+
+        p = (owner.plan or "free").lower()
+        if p in ("standard", "basic", "pro"):
+            plan_label = "Standart (To'liq)"
+            limit_str = "Cheksiz"
+            exp_date = owner.subscription_expires_at or owner.expires_at
+        else:
+            plan_label = "Free (2 oylik sinov)"
+            limit_str = f"{sub_settings.free_max_contracts} ta"
+            exp_date = owner.trial_ends_at or owner.expires_at
+
+        active_contracts = owner.contracts.filter(is_active=True).count()
+        used_count = active_contracts if active_contracts > 0 else owner.cars.count()
+
+        now = timezone.now()
+        if owner.is_frozen:
+            status_badge = "❄️ Muzlatilgan"
+            remaining_str = "Muzlatilgan"
+        elif owner.is_subscription_active:
+            status_badge = "✅ Faol"
+            if exp_date and exp_date > now:
+                days_left = (exp_date - now).days
+                remaining_str = f"{days_left} kun qoldi"
+            else:
+                remaining_str = "Muddatsiz"
+        else:
+            status_badge = "❌ Muddati tugagan"
+            remaining_str = "Tugagan"
+
+        date_str = (
+            timezone.localtime(exp_date).strftime("%d.%m.%Y %H:%M")
+            if exp_date
+            else "Muddatsiz"
+        )
+
         return {
-            "full_name": user.full_name,
+            "full_name": user.full_name or user.username,
             "role": user.get_role_display(),
             "tenant_code": owner.tenant_code or "AR-XXXX",
-            "plan": owner.plan.title(),
-            "cars_count": owner.cars.count(),
-            "cars_limit": owner.cars_limit,
+            "plan_label": plan_label,
+            "status_badge": status_badge,
+            "usage": f"{used_count} / {limit_str}",
             "percent": int(round(setting.default_annual_percent)),
-            "expires_at": (
-                owner.expires_at.strftime("%d.%m.%Y %H:%M")
-                if owner.expires_at
-                else "Cheksiz"
-            ),
-            "is_active": owner.is_subscription_active,
+            "expires_at": f"{date_str} ({remaining_str})",
         }
 
     info = await get_user_sub_details()
@@ -606,9 +644,9 @@ async def handle_subscription_info(message: Message):
         f"📊 <b>Mening Obuna Ma'lumotlarim:</b>\n\n"
         f"👤 Foydalanuvchi: <b>{info['full_name']}</b>\n"
         f"🛡 Rol: <b>{info['role']}</b>\n"
-        f"🔑 Maxsus kod: <b>{info['tenant_code']}</b>\n"
-        f"📦 Tarif: <b>{info['plan']}</b> ({'✅ Faol' if info['is_active'] else '❌ Tugagan'})\n"
-        f"🚗 Mashinalar: <b>{info['cars_count']} / {info['cars_limit']} ta</b>\n"
+        f"🔑 Maxsus kod: <code>{info['tenant_code']}</code>\n"
+        f"📦 Tarif: <b>{info['plan_label']}</b> ({info['status_badge']})\n"
+        f"🚗 Shartnomalar: <b>{info['usage']}</b>\n"
         f"📈 Standart yillik foiz: <b>{info['percent']}%</b>\n"
         f"⏳ Amal qilish muddati: <b>{info['expires_at']}</b>"
     )

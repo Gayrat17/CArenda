@@ -150,7 +150,11 @@ class TelegramWebAppAuthentication(BaseAuthentication):
         tg_username = user_data.get("username") or f"tg_{telegram_id}"
         full_name = f"{first_name} {last_name}".strip() or tg_username
 
-        # Auto-registration on first login (role: owner, 14-day trial)
+        # Auto-registration on first login (role: owner, 60-day free trial)
+        from apps.users.models import SubscriptionSettings
+        sub_settings = SubscriptionSettings.get_settings()
+        trial_end = timezone.now() + timedelta(days=sub_settings.free_duration_days)
+
         user, created = User.objects.get_or_create(
             telegram_id=telegram_id,
             defaults={
@@ -159,9 +163,10 @@ class TelegramWebAppAuthentication(BaseAuthentication):
                 "first_name": first_name,
                 "last_name": last_name,
                 "role": User.RoleChoices.ARENDATOR,
-                "plan": User.Plan.TRIAL,
-                "cars_limit": 2,
-                "expires_at": timezone.now() + timedelta(days=14),
+                "plan": User.Plan.FREE,
+                "cars_limit": sub_settings.free_max_contracts,
+                "trial_ends_at": trial_end,
+                "expires_at": trial_end,
             },
         )
 
