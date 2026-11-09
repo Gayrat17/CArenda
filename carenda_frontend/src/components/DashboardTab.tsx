@@ -94,9 +94,15 @@ export function DashboardTab({
     (dashboard?.active_contracts_count || 0) +
       (dashboard?.completed_contracts_count || 0);
 
-  const collectionRate = Math.min(
-    100,
-    Math.max(0, dashboard?.this_month_collection_rate ?? 0)
+  const totalExpectedNum = parseFloat(dashboard?.total_expected_usd || "0");
+  const totalCollectedNum = parseFloat(dashboard?.total_collected_usd || "0");
+  const overallProgress =
+    totalExpectedNum > 0
+      ? Math.min(100, Math.round((totalCollectedNum / totalExpectedNum) * 1000) / 10)
+      : 0;
+
+  const thisMonthExpectedNum = parseFloat(
+    dashboard?.this_month_expected_usd || "0"
   );
 
   return (
@@ -222,63 +228,64 @@ export function DashboardTab({
         </div>
       ) : (
         <>
-          {/* 2. Primary Financial Hero Card (Monthly Performance & Portfolio) */}
-          <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-blue-950 text-white p-5 rounded-3xl shadow-md border border-indigo-900/40 space-y-4">
+          {/* 2. Primary Financial Hero Card (All-time Collected & Portfolio Overview) */}
+          <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-blue-950 text-white p-5 rounded-3xl shadow-md border border-indigo-900/40 space-y-3.5">
             <div className="flex items-center justify-between text-xs text-indigo-200 font-medium">
               <span className="flex items-center gap-1.5 font-semibold uppercase tracking-wider text-[11px] text-blue-300">
                 <TrendingUp className="w-4 h-4 text-emerald-400" />
-                Joriy oy tushumi
+                Jami yig&apos;ilgan tushum
               </span>
               <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold text-[11px]">
-                {collectionRate}% yig&apos;ildi
+                {overallProgress}% yig&apos;ildi
               </span>
             </div>
 
-            {/* Collected amount this month */}
+            {/* Collected amount across all contracts */}
             <div>
               <p className="text-3xl font-black tracking-tight text-white">
-                {formatUSD(dashboard.this_month_collected_usd || "0.00")}
+                {formatUSD(dashboard.total_collected_usd)}
               </p>
-              <div className="flex items-center justify-between text-[11px] text-indigo-200/80 pt-1">
+              <div className="flex items-center justify-between text-[11px] text-indigo-200/80 pt-1 flex-wrap gap-1">
                 <span>
-                  Reja: {formatUSD(dashboard.this_month_expected_usd || "0.00")}
+                  Jami shartnoma qiymati: <strong className="text-white font-bold">{formatUSD(dashboard.total_expected_usd)}</strong>
                 </span>
-                <span>
-                  Qoldiq: {formatUSD(dashboard.this_month_remaining_usd || "0.00")}
+                <span className="text-rose-300 font-semibold">
+                  Qoldiq qarz: {formatUSD(dashboard.total_remaining_usd)}
                 </span>
               </div>
             </div>
 
-            {/* Collection Progress Bar */}
+            {/* Overall Progress Bar */}
             <div className="space-y-1">
               <div className="w-full bg-white/10 rounded-full h-2.5 overflow-hidden">
                 <div
                   className="bg-gradient-to-r from-emerald-400 to-cyan-400 h-2.5 rounded-full transition-all duration-500"
-                  style={{ width: `${collectionRate}%` }}
+                  style={{ width: `${overallProgress}%` }}
                 />
               </div>
             </div>
 
-            {/* Portfolio Total Summary Footer */}
-            <div className="pt-3 border-t border-white/10 grid grid-cols-3 gap-2 text-center">
-              <div className="space-y-0.5">
-                <span className="text-[10px] text-indigo-300 block">Jami reja</span>
-                <span className="text-xs font-bold text-white">
-                  {formatUSD(dashboard.total_expected_usd)}
+            {/* Sub-row: Active contracts & This month's schedule info if available */}
+            <div className="pt-2.5 border-t border-white/10 flex items-center justify-between text-xs text-indigo-200/90 flex-wrap gap-2">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] text-indigo-300">Faol shartnomalar:</span>
+                <span className="font-bold text-white">
+                  {dashboard.active_contracts_count || 0} ta
                 </span>
               </div>
-              <div className="space-y-0.5 border-x border-white/10">
-                <span className="text-[10px] text-indigo-300 block">Jami tushum</span>
-                <span className="text-xs font-bold text-emerald-400">
-                  {formatUSD(dashboard.total_collected_usd)}
+
+              {thisMonthExpectedNum > 0 ? (
+                <div className="flex items-center gap-1.5 text-[11px]">
+                  <span className="text-indigo-300">Bu oy kutilmoqda:</span>
+                  <span className="font-bold text-emerald-300">
+                    {formatUSD(dashboard.this_month_expected_usd || "0.00")}
+                  </span>
+                </div>
+              ) : (
+                <span className="text-[10px] text-indigo-300/80">
+                  Bu oyda to&apos;lov muddati yo&apos;q
                 </span>
-              </div>
-              <div className="space-y-0.5">
-                <span className="text-[10px] text-indigo-300 block">Portfel qoldig&apos;i</span>
-                <span className="text-xs font-bold text-rose-300">
-                  {formatUSD(dashboard.total_remaining_usd)}
-                </span>
-              </div>
+              )}
             </div>
           </div>
 
