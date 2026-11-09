@@ -12,6 +12,16 @@ input, textarea, select {
   caret-color: #2563eb;
 }
 
+/* Hide number input spinners universally so trailing badges (like %) and custom icons don't overlap */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
 html,
 body {
   background-color: var(--background);

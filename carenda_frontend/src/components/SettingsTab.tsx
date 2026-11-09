@@ -390,9 +390,9 @@ export function SettingsTab({ user, onRefreshUser }: SettingsTabProps) {
                 required
                 value={defaultPercent}
                 onChange={(e) => setDefaultPercent(e.target.value)}
-                className="w-full px-3.5 py-2.5 text-base font-bold bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                className="w-full px-3.5 pr-9 py-2.5 text-base font-bold bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
               />
-              <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 font-bold">%</span>
+              <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 font-bold pointer-events-none select-none">%</span>
             </div>
 
             {/* Quick preset buttons */}
