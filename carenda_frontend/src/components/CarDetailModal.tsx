@@ -12,6 +12,7 @@ import {
   ArrowLeft,
   User,
   FileSpreadsheet,
+  MessageSquare,
 } from "lucide-react";
 import { downloadSingleContractExcel, getCarDetail, updateCar } from "@/lib/api";
 import { CarDetail, Payment } from "@/types/fleet";
@@ -407,9 +408,10 @@ export function CarDetailModal({
                                 </span>
                               </div>
                               {p.comment && (
-                                <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200/70 rounded-md px-1.5 py-0.5 mt-1 font-medium inline-block max-w-[220px] truncate">
-                                  💬 {p.comment}
-                                </p>
+                                <div className="flex items-start gap-1.5 text-[11px] text-amber-900 bg-amber-50/90 border border-amber-200/70 rounded-lg px-2 py-1 mt-1 font-medium max-w-[260px]">
+                                  <MessageSquare className="w-3 h-3 text-amber-600 shrink-0 mt-0.5" />
+                                  <span className="break-words leading-tight">{p.comment}</span>
+                                </div>
                               )}
                             </div>
 

@@ -116,6 +116,7 @@ def get_dashboard_data_for_owner(owner, today=None):
                 "paid_amount": f"{p.paid_amount:.2f}",
                 "remaining_amount": f"{p.remaining_amount:.2f}",
                 "days_overdue": max(0, days_overdue),
+                "comment": p.comment or "",
             }
         )
 
@@ -587,6 +588,7 @@ class OverduePaymentsAPIView(APIView):
                     "paid_amount": f"{p.paid_amount:.2f}",
                     "remaining_amount": f"{p.remaining_amount:.2f}",
                     "days_overdue": max(0, days_overdue),
+                    "comment": p.comment or "",
                 }
             )
         return Response(results)

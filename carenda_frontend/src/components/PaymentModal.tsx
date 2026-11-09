@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { X, DollarSign, CheckCircle2, Calendar, AlertTriangle } from "lucide-react";
+import { X, DollarSign, CheckCircle2, Calendar, AlertTriangle, MessageSquare } from "lucide-react";
 import { recordPayment, postponePayment } from "@/lib/api";
 import { formatUSD, formatMoneyInput, parseMoneyValue } from "@/lib/utils";
 
@@ -15,6 +15,7 @@ interface PaymentTarget {
   remaining_amount: string;
   car_name?: string;
   driver_name?: string;
+  comment?: string;
 }
 
 interface PaymentModalProps {
@@ -27,7 +28,7 @@ export function PaymentModal({ payment, onClose, onSuccess }: PaymentModalProps)
   const [amount, setAmount] = useState(
     payment ? formatMoneyInput(payment.remaining_amount) : ""
   );
-  const [comment, setComment] = useState("");
+  const [comment, setComment] = useState(payment?.comment || "");
   const [loading, setLoading] = useState(false);
   const [postponing, setPostponing] = useState(false);
   const [confirmPostpone, setConfirmPostpone] = useState(false);
@@ -78,8 +79,8 @@ export function PaymentModal({ payment, onClose, onSuccess }: PaymentModalProps)
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-xs p-0 sm:p-4">
-      <div className="w-full max-w-md bg-white rounded-t-3xl sm:rounded-2xl shadow-xl overflow-hidden animate-in fade-in slide-in-from-bottom duration-200">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+      <div className="w-full max-w-md bg-white rounded-t-3xl sm:rounded-2xl shadow-xl max-h-[92dvh] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom duration-200">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0">
           <div className="flex items-center gap-2">
             <div className="p-2 bg-emerald-100 text-emerald-700 rounded-full">
               <DollarSign className="w-5 h-5" />
@@ -99,7 +100,7 @@ export function PaymentModal({ payment, onClose, onSuccess }: PaymentModalProps)
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-5 space-y-4">
+        <form onSubmit={handleSubmit} className="p-5 space-y-4 overflow-y-auto overscroll-contain flex-1">
           {error && (
             <div className="p-3 text-xs bg-rose-50 border border-rose-200 text-rose-700 rounded-xl">
               {error}
@@ -132,6 +133,19 @@ export function PaymentModal({ payment, onClose, onSuccess }: PaymentModalProps)
               <span className="text-slate-700">Qolgan summa:</span>
               <span className="text-rose-600 text-sm">{formatUSD(payment.remaining_amount)}</span>
             </div>
+            {payment.comment && (
+              <div className="pt-2 border-t border-slate-200/80 mt-1">
+                <div className="flex items-start gap-1.5 p-2 bg-amber-50/80 border border-amber-200/60 rounded-lg text-amber-900 text-xs">
+                  <MessageSquare className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="min-w-0 flex-1">
+                    <span className="font-semibold text-[10px] text-amber-700 uppercase tracking-wide block">
+                      Mavjud izoh:
+                    </span>
+                    <span className="text-xs break-words leading-tight">{payment.comment}</span>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Amount input */}
@@ -173,15 +187,16 @@ export function PaymentModal({ payment, onClose, onSuccess }: PaymentModalProps)
 
           {/* Comment */}
           <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1.5">
-              Izoh (ixtiyoriy)
+            <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 mb-1.5">
+              <MessageSquare className="w-3.5 h-3.5 text-slate-500" />
+              <span>To&apos;lov izohi (ixtiyoriy)</span>
             </label>
-            <input
-              type="text"
+            <textarea
+              rows={2}
               value={comment}
               onChange={(e) => setComment(e.target.value)}
-              placeholder="Naqd berildi / Karta orqali"
-              className="w-full px-3.5 py-2 text-sm bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+              placeholder="Masalan: Naqd berildi, karta orqali o'tkazildi, 50$ qarz qoldi..."
+              className="w-full px-3.5 py-2.5 text-sm bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 resize-none placeholder:text-slate-400 leading-snug"
             />
           </div>
 
@@ -205,6 +220,11 @@ export function PaymentModal({ payment, onClose, onSuccess }: PaymentModalProps)
                     Ushbu oy va undan keyingi barcha to&apos;lanmagan oylar sanasi 1 oy keyinga suriladi. Tasdiqlaysizmi?
                   </p>
                 </div>
+                {comment.trim() && (
+                  <p className="text-[11px] text-amber-800 bg-amber-100/70 border border-amber-200 rounded-lg p-2 leading-tight">
+                    <span className="font-semibold">Biriktiriladigan izoh:</span> {comment.trim()}
+                  </p>
+                )}
                 <div className="flex gap-2 pt-1">
                   <button
                     type="button"

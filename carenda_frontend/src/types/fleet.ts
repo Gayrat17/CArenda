@@ -204,6 +204,7 @@ export interface OverduePaymentItem {
   paid_amount: string;
   remaining_amount: string;
   days_overdue: number;
+  comment?: string;
 }
 
 export interface DashboardResponse {

@@ -84,6 +84,7 @@ export function CarendaApp() {
     remaining_amount: string;
     car_name?: string;
     driver_name?: string;
+    comment?: string;
   }
   const [activePaymentTarget, setActivePaymentTarget] = useState<PaymentTargetModal | null>(null);
 
@@ -166,6 +167,7 @@ export function CarendaApp() {
       remaining_amount: item.remaining_amount,
       car_name: item.car_name,
       driver_name: item.driver_name,
+      comment: item.comment,
     });
   };
 
@@ -183,6 +185,7 @@ export function CarendaApp() {
       remaining_amount: payment.remaining_amount,
       car_name: carName,
       driver_name: driverName,
+      comment: payment.comment,
     });
   };
 

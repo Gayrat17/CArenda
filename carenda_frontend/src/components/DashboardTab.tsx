@@ -15,6 +15,7 @@ import {
   Download,
   Copy,
   Check,
+  MessageSquare,
 } from "lucide-react";
 import { DashboardResponse, OverduePaymentItem, User } from "@/types/fleet";
 import { formatDate, formatUSD } from "@/lib/utils";
@@ -314,6 +315,18 @@ export function DashboardTab({
                         </span>
                       </div>
                     </div>
+
+                    {item.comment && (
+                      <div className="flex items-start gap-2 px-3 py-2 bg-amber-50/90 border border-amber-200/80 rounded-xl text-xs text-amber-900">
+                        <MessageSquare className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                        <div className="min-w-0 flex-1">
+                          <span className="font-semibold text-[10px] text-amber-700 uppercase tracking-wide block">
+                            Izoh:
+                          </span>
+                          <span className="text-xs break-words leading-tight">{item.comment}</span>
+                        </div>
+                      </div>
+                    )}
 
                     <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-50 flex-wrap gap-2">
                       <div className="flex items-center gap-1.5 text-rose-600 font-medium">

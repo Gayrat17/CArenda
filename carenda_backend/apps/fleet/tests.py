@@ -660,6 +660,7 @@ class FleetAPIIntegrationTests(TestCase):
         self.assertIn("driver_name", item)
         self.assertIn("remaining_amount", item)
         self.assertIn("days_overdue", item)
+        self.assertIn("comment", item)
 
         # 9. Close Contract
         close_resp = self.client_a.post(
