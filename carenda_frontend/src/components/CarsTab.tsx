@@ -65,7 +65,7 @@ export function CarsTab({
   }, [cars, filter, overdueContractIds]);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 pb-28">
       {/* Page Header */}
       <div>
         <h1 className="text-xl font-bold text-slate-900 leading-tight">
@@ -76,47 +76,55 @@ export function CarsTab({
         </p>
       </div>
 
-      {/* Status Filter Tabs (Single-Line Horizontal Layout with no-scrollbar) */}
-      <div className="flex overflow-x-auto no-scrollbar gap-1 p-1 bg-slate-200/70 rounded-xl text-xs font-medium text-slate-600">
+      {/* Status Filter Tabs (4-Column Responsive Grid, never overflows viewport) */}
+      <div className="grid grid-cols-4 gap-1 p-1 bg-slate-200/70 rounded-xl text-xs font-medium text-slate-600">
         <button
+          type="button"
           onClick={() => setFilter("all")}
-          className={`whitespace-nowrap flex-1 py-1.5 px-2.5 rounded-lg transition cursor-pointer text-center shrink-0 sm:shrink ${
+          className={`py-1.5 px-1 rounded-lg transition cursor-pointer text-center flex items-center justify-center gap-1 ${
             filter === "all"
               ? "bg-white text-slate-900 font-semibold shadow-xs"
               : "text-slate-600 hover:text-slate-900"
           }`}
         >
-          Barchasi ({counts.all})
+          <span className="truncate">Barchasi</span>
+          <span className="text-[10px] opacity-75 font-bold">({counts.all})</span>
         </button>
         <button
+          type="button"
           onClick={() => setFilter("active")}
-          className={`whitespace-nowrap flex-1 py-1.5 px-2.5 rounded-lg transition cursor-pointer text-center shrink-0 sm:shrink ${
+          className={`py-1.5 px-1 rounded-lg transition cursor-pointer text-center flex items-center justify-center gap-1 ${
             filter === "active"
               ? "bg-white text-blue-600 font-semibold shadow-xs"
               : "text-slate-600 hover:text-slate-900"
           }`}
         >
-          Faol ({counts.active})
+          <span className="truncate">Faol</span>
+          <span className="text-[10px] opacity-75 font-bold">({counts.active})</span>
         </button>
         <button
+          type="button"
           onClick={() => setFilter("overdue")}
-          className={`whitespace-nowrap flex-1 py-1.5 px-2.5 rounded-lg transition cursor-pointer text-center shrink-0 sm:shrink ${
+          className={`py-1.5 px-1 rounded-lg transition cursor-pointer text-center flex items-center justify-center gap-1 ${
             filter === "overdue"
               ? "bg-white text-rose-700 font-semibold shadow-xs"
               : "text-slate-600 hover:text-slate-900"
           }`}
         >
-          Qarzdorlar ({counts.overdue})
+          <span className="truncate">Qarzdor</span>
+          <span className="text-[10px] opacity-75 font-bold">({counts.overdue})</span>
         </button>
         <button
+          type="button"
           onClick={() => setFilter("closed")}
-          className={`whitespace-nowrap flex-1 py-1.5 px-2.5 rounded-lg transition cursor-pointer text-center shrink-0 sm:shrink ${
+          className={`py-1.5 px-1 rounded-lg transition cursor-pointer text-center flex items-center justify-center gap-1 ${
             filter === "closed"
               ? "bg-white text-slate-800 font-semibold shadow-xs"
               : "text-slate-600 hover:text-slate-900"
           }`}
         >
-          Yopilgan ({counts.closed})
+          <span className="truncate">Yopilgan</span>
+          <span className="text-[10px] opacity-75 font-bold">({counts.closed})</span>
         </button>
       </div>
 
@@ -204,9 +212,9 @@ export function CarsTab({
                 {/* Bottom Row: Client Full Name (Left) | Monthly & Next Payment (Right) */}
                 {car.status === "rented" && activeContract ? (
                   <div className="flex items-center justify-between text-xs gap-2">
-                    <div className="flex items-center gap-1.5 text-slate-800 min-w-0">
+                    <div className="flex items-center gap-1.5 text-slate-800 min-w-0 flex-1">
                       <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                      <span className="capitalize font-medium text-slate-800 truncate max-w-[150px]">
+                      <span className="capitalize font-medium text-slate-800 truncate">
                         {activeContract.driver_name}
                       </span>
                     </div>

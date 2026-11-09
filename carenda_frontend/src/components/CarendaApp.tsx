@@ -257,7 +257,7 @@ export function CarendaApp() {
   }
 
   return (
-    <main className="max-w-md mx-auto min-h-screen bg-slate-50 text-slate-900 pb-24 px-4 pt-4 relative">
+    <main className="w-full max-w-md mx-auto min-h-screen bg-slate-50 text-slate-900 pb-24 px-4 pt-4 relative overflow-x-hidden">
       {/* Active Tab View */}
       {activeTab === "dashboard" && (
         <DashboardTab
