@@ -26,9 +26,7 @@ interface PaymentModalProps {
 }
 
 export function PaymentModal({ payment, onClose, onSuccess }: PaymentModalProps) {
-  const [amount, setAmount] = useState(
-    payment ? formatMoneyInput(payment.remaining_amount) : ""
-  );
+  const [amount, setAmount] = useState("");
   const [comment, setComment] = useState(payment?.comment || "");
   const [loading, setLoading] = useState(false);
   const [postponing, setPostponing] = useState(false);
@@ -38,11 +36,12 @@ export function PaymentModal({ payment, onClose, onSuccess }: PaymentModalProps)
   if (!payment) return null;
 
   const remaining = parseFloat(payment.remaining_amount) || 0;
+  const payVal = parseMoneyValue(amount);
+  const isAmountValid = !isNaN(payVal) && payVal > 0;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const payVal = parseMoneyValue(amount);
-    if (isNaN(payVal) || payVal <= 0) {
+    if (!isAmountValid) {
       setError("Iltimos, to'g'ri to'lov summasini kiriting.");
       return;
     }
@@ -147,9 +146,10 @@ export function PaymentModal({ payment, onClose, onSuccess }: PaymentModalProps)
                 type="text"
                 inputMode="decimal"
                 required
+                placeholder="0.00"
                 value={amount}
                 onChange={(e) => setAmount(formatMoneyInput(e.target.value))}
-                className="w-full pl-8 pr-4 py-2.5 text-base font-semibold bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+                className="w-full pl-8 pr-4 py-2.5 text-base font-semibold bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 placeholder:text-slate-300"
               />
             </div>
             {/* Quick preset buttons */}
@@ -251,8 +251,8 @@ export function PaymentModal({ payment, onClose, onSuccess }: PaymentModalProps)
             </button>
             <button
               type="submit"
-              disabled={loading || postponing || confirmPostpone}
-              className="flex-1 flex items-center justify-center gap-1.5 py-2.5 px-4 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95 rounded-xl transition shadow-sm disabled:opacity-50 cursor-pointer"
+              disabled={loading || postponing || confirmPostpone || !isAmountValid}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2.5 px-4 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95 rounded-xl transition shadow-sm disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
             >
               <CheckCircle2 className="w-4 h-4" />
               {loading ? "Saqlanmoqda..." : "Tasdiqlash"}
