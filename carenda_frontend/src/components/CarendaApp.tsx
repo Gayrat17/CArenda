@@ -22,6 +22,7 @@ import { SettingsTab } from "@/components/SettingsTab";
 import { PaymentModal } from "@/components/PaymentModal";
 import { CarDetailModal } from "@/components/CarDetailModal";
 import { UserScheduleView } from "@/components/UserScheduleView";
+import { CarendaSkeleton } from "@/components/CarendaSkeleton";
 import { Phone } from "lucide-react";
 
 export function CarendaApp() {
@@ -31,48 +32,24 @@ export function CarendaApp() {
   // Immediate synchronous cache hydration from memory / localStorage
   const [cachedBoot] = useState<BootstrapResponse | null>(() => getCachedBootstrapSync());
 
-  // Extract Telegram user info if available on first cold render
+  // Extract verified user only if valid cache exists; never guess or assume role
   const getInitialUser = (): User | null => {
-    if (cachedBoot?.me) return cachedBoot.me;
-    if (typeof window !== "undefined") {
-      const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
-      if (tgUser) {
-        const tgId = tgUser.id ?? 0;
-        const fullName =
-          [tgUser.first_name, tgUser.last_name].filter(Boolean).join(" ") ||
-          tgUser.username ||
-          "Foydalanuvchi";
-        return {
-          id: tgId,
-          telegram_id: tgId || null,
-          username: tgUser.username || null,
-          full_name: fullName,
-          phone: "",
-          role: "arendator",
-          plan: "trial",
-          cars_limit: 2,
-          cars_count: 0,
-          expires_at: "",
-          is_subscription_active: true,
-          can_add_car: true,
-          default_annual_percent: "20",
-          is_registered: true,
-        };
-      }
-    }
+    if (cachedBoot?.me?.is_onboarded) return cachedBoot.me;
     return null;
   };
 
   const [user, setUser] = useState<User | null>(getInitialUser);
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(
-    () => cachedBoot?.dashboard || null
+    () => (cachedBoot?.me?.is_onboarded && cachedBoot?.me?.role === "arendator" ? cachedBoot?.dashboard : null)
   );
-  const [cars, setCars] = useState<CarListItem[]>(() => cachedBoot?.cars || []);
+  const [cars, setCars] = useState<CarListItem[]>(
+    () => (cachedBoot?.me?.is_onboarded && cachedBoot?.me?.role === "arendator" ? cachedBoot?.cars || [] : [])
+  );
   const [userSchedule, setUserSchedule] = useState<UserScheduleContract[] | null>(
     () => cachedBoot?.user_schedule || null
   );
   const [drivers, setDrivers] = useState<Driver[]>([]);
-  const [loading, setLoading] = useState<boolean>(() => !cachedBoot);
+  const [loading, setLoading] = useState<boolean>(() => !cachedBoot?.me?.is_onboarded);
 
   // Modals & Navigation Selection State
   const [selectedCarForDetailId, setSelectedCarForDetailId] = useState<number | null>(null);
@@ -98,7 +75,7 @@ export function CarendaApp() {
       const boot = await getBootstrap({ forceRefresh });
       if (boot?.me) {
         setUser(boot.me);
-        if (!boot.me.is_onboarded && boot.me.is_registered === false) {
+        if (!boot.me.is_onboarded) {
           router.replace("/login");
           setLoading(false);
           return;
@@ -108,6 +85,10 @@ export function CarendaApp() {
           setLoading(false);
           return;
         }
+      } else {
+        router.replace("/login");
+        setLoading(false);
+        return;
       }
 
       if (boot?.dashboard) setDashboard(boot.dashboard);
@@ -219,29 +200,21 @@ export function CarendaApp() {
     [dashboard?.overdue_payments]
   );
 
-  // Unregistered or not onboarded user check
-  if (user && !user.is_onboarded && user.is_registered === false) {
+  // If still loading or user role not yet determined, render skeleton
+  if (loading || !user) {
+    return <CarendaSkeleton />;
+  }
+
+  // Unregistered or not onboarded user check -> strictly redirect to onboarding
+  if (!user.is_onboarded) {
     router.replace("/login");
-    return null;
+    return <CarendaSkeleton />;
   }
 
   // Client (Ijarachi) redirect to isolated Client Portal
-  if (user && (user.role === "ijarachi" || user.role === "user")) {
+  if (user.role === "ijarachi" || user.role === "user") {
     router.replace("/client");
-    return null;
-  }
-
-  // If user is a Driver / Ijarachi, show the dedicated read-only schedule view
-  if (user?.role === "user") {
-    return (
-      <main className="max-w-md mx-auto min-h-screen bg-slate-50 text-slate-900 pb-8 px-4 pt-4 relative">
-        <UserScheduleView
-          user={user}
-          initialContracts={userSchedule}
-          onRefreshUser={loadData}
-        />
-      </main>
-    );
+    return <CarendaSkeleton />;
   }
 
   return (

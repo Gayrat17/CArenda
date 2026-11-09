@@ -35,6 +35,7 @@ def invalidate_tenant_cache(owner_id: int, telegram_id: int | None = None) -> No
             try:
                 cache.delete_pattern(f"tenant_dashboard:{owner_id}:*")
                 cache.delete_pattern(f"tenant_bootstrap:{owner_id}:*")
+                cache.delete_pattern("user_bootstrap:*")
             except Exception:
                 pass
     except Exception:

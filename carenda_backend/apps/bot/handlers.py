@@ -95,12 +95,13 @@ def get_miniapp_inline_keyboard() -> InlineKeyboardMarkup:
 
 def get_client_miniapp_inline_keyboard() -> InlineKeyboardMarkup:
     webapp_url = get_webapp_url()
+    client_url = f"{webapp_url.rstrip('/')}/client"
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
                     text="📱 To'lov jadvalimni ko'rish",
-                    web_app=WebAppInfo(url=webapp_url),
+                    web_app=WebAppInfo(url=client_url),
                 )
             ]
         ]
@@ -148,6 +149,48 @@ def get_existing_user(user_or_id) -> User | None:
             user.save(update_fields=fields)
 
     return user
+
+
+@sync_to_async
+def find_code_target(code: str) -> dict | None:
+    if not code:
+        return None
+    clean = code.strip().upper()
+    from apps.fleet.models import Contract
+    from django.db.models import Q
+    contract = (
+        Contract.objects.filter(invite_code__iexact=clean, is_active=True)
+        .select_related("owner", "car", "driver")
+        .first()
+    )
+    if contract:
+        owner = contract.owner
+        return {
+            "type": "contract",
+            "owner": owner,
+            "contract": contract,
+            "contract_id": contract.id,
+            "car_name": contract.car.name if contract.car else None,
+            "plate_number": contract.car.plate_number if contract.car else None,
+            "driver_name": contract.driver.full_name if contract.driver else None,
+            "code": clean,
+        }
+    owner = User.objects.filter(
+        Q(tenant_code__iexact=clean) | Q(invite_code__iexact=clean),
+        role=User.RoleChoices.ARENDATOR,
+    ).first()
+    if owner:
+        return {
+            "type": "arendator",
+            "owner": owner,
+            "contract": None,
+            "contract_id": None,
+            "car_name": None,
+            "plate_number": None,
+            "driver_name": None,
+            "code": clean,
+        }
+    return None
 
 
 @sync_to_async
@@ -229,32 +272,68 @@ def register_owner_user(from_user, phone_number: str) -> User:
 
 @sync_to_async
 def match_and_register_user_driver(
-    from_user, phone_number: str, target_owner_id: int
+    from_user,
+    phone_number: str,
+    target_owner_id: int,
+    target_contract_id: int | None = None,
+    invite_code: str | None = None,
 ) -> tuple[User | None, str | None]:
     normalized_incoming = normalize_phone(phone_number)
-    if not normalized_incoming:
-        return None, None
-
-    drivers = Driver.objects.filter(owner_id=target_owner_id)
-    matched_driver = None
-    for d in drivers:
-        driver_norm_phones = [normalize_phone(p) for p in d.all_phones]
-        if normalized_incoming in driver_norm_phones:
-            matched_driver = d
-            break
-
-    if not matched_driver:
-        return None, None
+    cleaned_phone = phone_number.strip()
+    if not cleaned_phone.startswith("+"):
+        cleaned_phone = f"+{cleaned_phone}"
 
     tg_id = from_user.id
     first_name = from_user.first_name or ""
     last_name = from_user.last_name or ""
-    full_name = matched_driver.full_name or f"{first_name} {last_name}".strip()
+    full_name = f"{first_name} {last_name}".strip()
     username = from_user.username or f"tg_{tg_id}"
 
-    cleaned_phone = phone_number.strip()
-    if not cleaned_phone.startswith("+"):
-        cleaned_phone = f"+{cleaned_phone}"
+    from apps.fleet.models import Contract
+    matched_driver = None
+
+    # 1. If target_contract_id was provided
+    if target_contract_id:
+        contract = (
+            Contract.objects.filter(id=target_contract_id)
+            .select_related("driver", "owner")
+            .first()
+        )
+        if contract and contract.driver:
+            matched_driver = contract.driver
+            if not matched_driver.phone:
+                matched_driver.phone = cleaned_phone
+                matched_driver.save(update_fields=["phone"])
+
+    # 2. If no contract or driver not matched yet, search by phone
+    if not matched_driver and normalized_incoming:
+        drivers = Driver.objects.filter(owner_id=target_owner_id)
+        for d in drivers:
+            driver_norm_phones = [normalize_phone(p) for p in d.all_phones]
+            if normalized_incoming in driver_norm_phones:
+                matched_driver = d
+                break
+
+    # 3. If invite_code provided and matches a contract
+    if not matched_driver and invite_code:
+        contract = (
+            Contract.objects.filter(invite_code__iexact=invite_code.strip())
+            .select_related("driver", "owner")
+            .first()
+        )
+        if contract and contract.driver:
+            matched_driver = contract.driver
+            if not matched_driver.phone:
+                matched_driver.phone = cleaned_phone
+                matched_driver.save(update_fields=["phone"])
+
+    if not matched_driver:
+        return None, None
+
+    if matched_driver and matched_driver.full_name:
+        full_name = matched_driver.full_name
+    elif not full_name:
+        full_name = username
 
     user, _ = User.objects.get_or_create(
         telegram_id=tg_id,
@@ -280,7 +359,16 @@ def match_and_register_user_driver(
     user.linked_arendator_id = target_owner_id
     user.is_registered = True
     user.is_onboarded = True
-    fields = ["phone", "phone_number", "role", "parent_owner_id", "linked_arendator_id", "is_registered", "is_onboarded"]
+
+    fields = [
+        "phone",
+        "phone_number",
+        "role",
+        "parent_owner_id",
+        "linked_arendator_id",
+        "is_registered",
+        "is_onboarded",
+    ]
     if full_name and user.full_name != full_name:
         user.full_name = full_name
         fields.append("full_name")
@@ -296,16 +384,14 @@ def match_and_register_user_driver(
             fields.append("username")
     user.save(update_fields=fields)
 
-    matched_driver.user = user
-    matched_driver.save(update_fields=["user"])
+    if matched_driver:
+        matched_driver.user = user
+        matched_driver.save(update_fields=["user"])
 
-    return user, matched_driver.full_name
-    user.save(update_fields=fields)
+    from apps.fleet.services import invalidate_tenant_cache
+    invalidate_tenant_cache(target_owner_id, tg_id)
 
-    matched_driver.user = user
-    matched_driver.save(update_fields=["user"])
-
-    return user, matched_driver.full_name
+    return user, (matched_driver.full_name if matched_driver else full_name)
 
 
 match_and_register_client_driver = match_and_register_user_driver
@@ -427,21 +513,30 @@ handle_choose_client = handle_choose_user
 @router.message(RegistrationStates.waiting_for_tenant_code, F.text)
 async def handle_user_tenant_code(message: Message, state: FSMContext):
     code = message.text.strip().upper()
-    owner = await find_owner_by_code(code)
+    target_info = await find_code_target(code)
 
-    if not owner:
+    if not target_info:
         await message.answer(
             "❌ Bunday kodli arendator topilmadi. Qaytadan kiriting (masalan: AR-4829):"
         )
         return
 
+    owner = target_info["owner"]
     await state.update_data(
         target_owner_id=owner.id,
         target_owner_name=owner.full_name or owner.username,
+        target_contract_id=target_info.get("contract_id"),
+        target_code=code,
     )
     await state.set_state(RegistrationStates.waiting_for_user_phone)
+
+    car_msg = ""
+    if target_info.get("car_name"):
+        plate = f" ({target_info['plate_number']})" if target_info.get("plate_number") else ""
+        car_msg = f"\n🚗 Shartnoma avtomobili: <b>{target_info['car_name']}{plate}</b>"
+
     await message.answer(
-        f"✅ Arendator topildi: <b>{owner.full_name or owner.username}</b>!\n\n"
+        f"✅ Arendator topildi: <b>{owner.full_name or owner.username}</b>!{car_msg}\n\n"
         f"Endi shaxsingizni tasdiqlash uchun pastdagi tugma orqali telefon raqamingizni yuboring:",
         parse_mode="HTML",
         reply_markup=get_contact_request_keyboard(),
@@ -458,6 +553,8 @@ async def handle_user_contact(message: Message, state: FSMContext):
 
     data = await state.get_data()
     target_owner_id = data.get("target_owner_id")
+    target_contract_id = data.get("target_contract_id")
+    target_code = data.get("target_code")
 
     if not target_owner_id:
         await state.clear()
@@ -469,7 +566,11 @@ async def handle_user_contact(message: Message, state: FSMContext):
 
     raw_phone = message.contact.phone_number
     user, driver_name = await match_and_register_user_driver(
-        message.from_user, raw_phone, target_owner_id
+        message.from_user,
+        raw_phone,
+        target_owner_id,
+        target_contract_id=target_contract_id,
+        invite_code=target_code,
     )
 
     if not user:
@@ -510,8 +611,50 @@ async def handle_general_contact(message: Message, state: FSMContext):
     current_state = await state.get_state()
     if current_state == RegistrationStates.waiting_for_user_phone.state:
         await handle_user_contact(message, state)
-    else:
+        return
+    if current_state == RegistrationStates.waiting_for_owner_phone.state:
         await handle_owner_contact(message, state)
+        return
+
+    # User sent contact without active state (e.g. from Mini App requestContact or direct share)
+    user = await get_existing_user(message.from_user.id)
+    raw_phone = message.contact.phone_number.strip()
+    cleaned_phone = raw_phone if raw_phone.startswith("+") else f"+{raw_phone}"
+
+    if user:
+        user.phone = cleaned_phone
+        user.phone_number = cleaned_phone
+        user.is_registered = True
+        user.is_onboarded = True
+        await sync_to_async(user.save)(update_fields=["phone", "phone_number", "is_registered", "is_onboarded"])
+        from apps.fleet.services import invalidate_tenant_cache
+        owner_id = user.tenant_owner.id if user.tenant_owner else user.id
+        await sync_to_async(invalidate_tenant_cache)(owner_id, user.telegram_id)
+
+        role = (user.role or "").lower()
+        if role in (User.RoleChoices.IJARACHI, User.RoleChoices.USER):
+            await message.answer(
+                f"✅ Telefon raqamingiz muvaffaqiyatli saqlandi: <b>{cleaned_phone}</b>.\n\n"
+                "Quyidagi tugma orqali to'lovlar jadvalingizni ko'rishingiz mumkin:",
+                parse_mode="HTML",
+                reply_markup=get_client_miniapp_inline_keyboard(),
+            )
+        else:
+            await message.answer(
+                f"✅ Telefon raqamingiz muvaffaqiyatli saqlandi: <b>{cleaned_phone}</b>.\n\n"
+                "Mini App'ni ochishingiz mumkin:",
+                parse_mode="HTML",
+                reply_markup=get_miniapp_inline_keyboard(),
+            )
+        return
+
+    # If user does NOT exist in DB at all, DO NOT default to owner! Prompt to choose role!
+    await state.clear()
+    await message.answer(
+        "Assalomu alaykum! CArenda tizimiga xush kelibsiz.\n\n"
+        "Iltimos, avval rolingizni tanlang:",
+        reply_markup=get_role_selection_keyboard(),
+    )
 
 
 # --- Arendator Reply Keyboard Commands ---

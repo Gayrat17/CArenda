@@ -16,7 +16,7 @@ import {
   Sparkles,
   Check,
 } from "lucide-react";
-import { completeOnboarding, getBootstrap, verifyInviteCode } from "@/lib/api";
+import { completeOnboarding, getBootstrap, getMe, verifyInviteCode } from "@/lib/api";
 import { formatUzbekPhone } from "@/lib/utils";
 import { VerifyInviteCodeResponse } from "@/types/fleet";
 
@@ -112,31 +112,14 @@ export default function LoginPage() {
     }
   };
 
-  // Request Contact via Telegram WebApp
-  const handleRequestTelegramContact = () => {
-    if (typeof window !== "undefined") {
-      const tg = (window as unknown as { Telegram?: { WebApp?: { requestContact?: (cb: (sent: boolean) => void) => void } } }).Telegram?.WebApp;
-      if (typeof tg?.requestContact === "function") {
-        setRequestingContact(true);
-        tg.requestContact((sent: boolean) => {
-          setRequestingContact(false);
-          if (!sent) {
-            setSubmitError("Telefon raqamini yuborish rad etildi. Iltimos, raqamingizni qo'lda kiriting.");
-          }
-        });
-      }
-    }
-  };
-
-  // Final Submit
-  const handleCompleteOnboarding = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Submit helper that completes onboarding and redirects cleanly
+  const submitOnboardingWithPhone = async (phoneToSubmit: string) => {
     if (!selectedRole) {
       setSubmitError("Iltimos, avval rolingizni tanlang.");
       return;
     }
 
-    const cleanPhone = phoneNumber.replace(/[^\d+]/g, "").trim();
+    const cleanPhone = phoneToSubmit.replace(/[^\d+]/g, "").trim();
     if (cleanPhone.replace(/\D/g, "").length < 9) {
       setSubmitError("Iltimos, to'liq telefon raqamingizni kiriting (+998 XX XXX XX XX).");
       return;
@@ -153,7 +136,7 @@ export default function LoginPage() {
     try {
       const res = await completeOnboarding({
         role: selectedRole,
-        phone_number: phoneNumber,
+        phone_number: phoneToSubmit,
         invite_code: selectedRole === "ijarachi" ? inviteCode.trim().toUpperCase() : undefined,
         full_name: fullName.trim() || undefined,
       });
@@ -177,6 +160,54 @@ export default function LoginPage() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  // Request Contact via Telegram WebApp
+  const handleRequestTelegramContact = () => {
+    if (typeof window !== "undefined") {
+      const tg = (window as unknown as { Telegram?: { WebApp?: { requestContact?: (cb: (sent: boolean) => void) => void } } }).Telegram?.WebApp;
+      if (typeof tg?.requestContact === "function") {
+        setRequestingContact(true);
+        setSubmitError(null);
+        tg.requestContact(async (sent: boolean) => {
+          if (!sent) {
+            setRequestingContact(false);
+            setSubmitError("Telefon raqamini yuborish rad etildi. Iltimos, raqamingizni quyidagi maydonga kiriting.");
+            return;
+          }
+
+          // Contact shared to Telegram bot! Poll for updated phone in backend
+          let retrievedPhone = "";
+          for (let attempt = 0; attempt < 5; attempt++) {
+            await new Promise((r) => setTimeout(r, attempt === 0 ? 500 : 1000));
+            try {
+              const me = await getMe({ forceRefresh: true });
+              if (me?.phone || me?.phone_number) {
+                retrievedPhone = (me.phone || me.phone_number || "").trim();
+                break;
+              }
+            } catch {
+              // ignore
+            }
+          }
+
+          setRequestingContact(false);
+
+          if (retrievedPhone) {
+            setPhoneNumber(formatUzbekPhone(retrievedPhone, false));
+            await submitOnboardingWithPhone(retrievedPhone);
+          } else {
+            setSubmitError("Telefon raqamingiz bot orqali qabul qilindi. Iltimos, pastdagi 'Ro'yxatdan o'tishni yakunlash' tugmasini bosing.");
+          }
+        });
+      }
+    }
+  };
+
+  // Final Submit from Form
+  const handleCompleteOnboarding = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await submitOnboardingWithPhone(phoneNumber);
   };
 
   return (
@@ -469,19 +500,34 @@ export default function LoginPage() {
             <div className="space-y-3 pt-2">
               {/* Optional Telegram Contact Button */}
               {hasTelegramContact && (
-                <button
-                  type="button"
-                  onClick={handleRequestTelegramContact}
-                  disabled={requestingContact}
-                  className="w-full py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs rounded-xl transition flex items-center justify-center gap-2 cursor-pointer active:scale-98"
-                >
-                  <Phone className="w-3.5 h-3.5 text-blue-600" />
-                  <span>
-                    {requestingContact
-                      ? "Kutilmoqda..."
-                      : "📱 Telegram orqali raqamni ulashish"}
-                  </span>
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={handleRequestTelegramContact}
+                    disabled={requestingContact || submitting}
+                    className="w-full py-3.5 px-4 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 font-bold text-xs rounded-xl transition flex items-center justify-center gap-2 cursor-pointer active:scale-98 disabled:opacity-50"
+                  >
+                    {requestingContact ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+                        <span>Raqam qabul qilinmoqda...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Phone className="w-3.5 h-3.5 text-blue-600" />
+                        <span>📱 Telegram orqali raqamni ulashish</span>
+                      </>
+                    )}
+                  </button>
+
+                  <div className="flex items-center gap-2 py-0.5">
+                    <div className="flex-1 h-px bg-slate-200" />
+                    <span className="text-[10px] uppercase font-bold text-slate-400">
+                      yoki qo&apos;lda kiriting
+                    </span>
+                    <div className="flex-1 h-px bg-slate-200" />
+                  </div>
+                </>
               )}
 
               {/* Phone Input */}

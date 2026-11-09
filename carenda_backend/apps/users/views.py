@@ -492,13 +492,24 @@ class CompleteOnboardingAPIView(APIView):
                 user.linked_arendator = matched_arendator
                 user.parent_owner = matched_arendator
                 # Link matching driver under this arendator
+                matched_d = None
                 for d in matched_arendator.drivers.all():
                     if normalized_incoming in [normalize_phone(p) for p in d.all_phones]:
+                        matched_d = d
                         d.user = user
                         d.save(update_fields=["user"])
                         break
+                if not matched_d and full_name:
+                    for d in matched_arendator.drivers.filter(user__isnull=True):
+                        if d.full_name and d.full_name.strip().lower() == full_name.strip().lower():
+                            d.user = user
+                            if not d.phone:
+                                d.phone = formatted_phone
+                            d.save(update_fields=["user", "phone"])
+                            break
 
             user.role = User.RoleChoices.IJARACHI
+            user.invite_code = invite_code
 
         else: # Arendator
             user.role = User.RoleChoices.ARENDATOR

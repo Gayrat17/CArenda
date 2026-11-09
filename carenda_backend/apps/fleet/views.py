@@ -291,6 +291,18 @@ def get_user_schedule_data(user):
                         d.save(update_fields=["user"])
                     break
 
+    if not driver and getattr(user, "invite_code", None):
+        c = (
+            Contract.objects.filter(invite_code__iexact=user.invite_code, is_active=True)
+            .select_related("driver", "owner")
+            .first()
+        )
+        if c and c.driver:
+            driver = c.driver
+            if not driver.user_id:
+                driver.user = user
+                driver.save(update_fields=["user"])
+
     if not driver:
         return []
 
@@ -378,23 +390,31 @@ class BootstrapAPIView(APIView):
 
     def get(self, request):
         today = timezone.localdate()
-        owner = request.user.tenant_owner if hasattr(request.user, "tenant_owner") else request.user
-        cache_key = f"tenant_bootstrap:{owner.id}:{today.isoformat()}"
+        user = request.user
+        role = (user.role or "").lower()
+        is_arendator = role in (User.RoleChoices.ARENDATOR, "owner", User.RoleChoices.SUPERADMIN)
+
+        if is_arendator:
+            owner = user.tenant_owner if hasattr(user, "tenant_owner") else user
+            cache_key = f"tenant_bootstrap:{owner.id}:{today.isoformat()}"
+        else:
+            cache_key = f"user_bootstrap:{user.id}:{today.isoformat()}"
+
         cached_data = cache.get(cache_key)
         if cached_data is not None:
             return Response(cached_data)
 
-        me_data = UserMeSerializer(request.user).data
+        me_data = UserMeSerializer(user).data
 
-        role = (request.user.role or "").lower()
-        if role in (User.RoleChoices.ARENDATOR, "owner", User.RoleChoices.SUPERADMIN):
+        if is_arendator:
+            owner = user.tenant_owner if hasattr(user, "tenant_owner") else user
             dashboard_data = get_dashboard_data_for_owner(owner, today)
             cars_data = get_cars_data_for_owner(owner)
             user_schedule_data = None
         else:
             dashboard_data = None
             cars_data = []
-            user_schedule_data = get_user_schedule_data(request.user)
+            user_schedule_data = get_user_schedule_data(user)
 
         data = {
             "me": me_data,

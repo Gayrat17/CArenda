@@ -954,6 +954,39 @@ class ClientPortalAndPermissionTests(TestCase):
         excel_resp = self.client_api.get("/api/v1/export/excel/")
         self.assertEqual(excel_resp.status_code, 403)
 
+    def test_ijarachi_role_is_forbidden_from_subscription_endpoints(self):
+        # Ijarachi cannot view or manage arendator subscriptions
+        status_resp = self.client_api.get("/api/v1/subscriptions/status/")
+        self.assertEqual(status_resp.status_code, 403)
+
+        req_resp = self.client_api.post("/api/v1/subscriptions/request/", {"plan_type": "standard"})
+        self.assertEqual(req_resp.status_code, 403)
+
+    def test_arendator_is_forbidden_from_client_dashboard(self):
+        owner_api = APIClient()
+        owner_api.force_authenticate(user=self.owner)
+
+        resp = owner_api.get("/api/v1/client/dashboard/")
+        self.assertEqual(resp.status_code, 403)
+
+    def test_bootstrap_isolation_between_owner_and_ijarachi(self):
+        from django.core.cache import cache
+        cache.clear()
+
+        # 1. Owner requests bootstrap: receives dashboard & cars
+        owner_api = APIClient()
+        owner_api.force_authenticate(user=self.owner)
+        owner_boot = owner_api.get("/api/v1/bootstrap/").json()
+        self.assertIsNotNone(owner_boot["dashboard"])
+        self.assertGreaterEqual(len(owner_boot["cars"]), 1)
+        self.assertIsNone(owner_boot["user_schedule"])
+
+        # 2. Ijarachi requests bootstrap: MUST NOT receive owner's cached dashboard or cars
+        ijarachi_boot = self.client_api.get("/api/v1/bootstrap/").json()
+        self.assertIsNone(ijarachi_boot["dashboard"])
+        self.assertEqual(ijarachi_boot["cars"], [])
+        self.assertIsNotNone(ijarachi_boot["user_schedule"])
+
 
 class PerformanceAndCachingTests(TestCase):
     def setUp(self):

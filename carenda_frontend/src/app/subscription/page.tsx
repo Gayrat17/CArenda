@@ -47,7 +47,7 @@ export default function SubscriptionPage() {
       ]);
 
       if (boot?.me) {
-        if (!boot.me.is_onboarded && boot.me.is_registered === false) {
+        if (!boot.me.is_onboarded) {
           router.replace("/login");
           return;
         }
@@ -56,6 +56,9 @@ export default function SubscriptionPage() {
           return;
         }
         setUser(boot.me);
+      } else {
+        router.replace("/login");
+        return;
       }
       if (statusData) {
         setSubStatus(statusData);
