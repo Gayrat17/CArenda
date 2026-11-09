@@ -655,11 +655,51 @@ class ExportExcelAPIView(APIView):
     def get(self, request):
         owner = request.user.tenant_owner
         excel_bytes = generate_tenant_excel_report(owner)
+        filename = "carenda_hisobot.xlsx"
+
+        sent_to_bot = False
+        send_to_bot = (
+            request.query_params.get("send_to_bot") in ("1", "true", "True")
+            or bool(request.user.telegram_id and "tma " in request.headers.get("Authorization", "").lower())
+        )
+        if send_to_bot and request.user.telegram_id:
+            bot_token = getattr(settings, "TELEGRAM_BOT_TOKEN", None)
+            if bot_token and bot_token != "dev_bot_token_123456":
+                try:
+                    import asyncio
+                    from aiogram import Bot
+                    from aiogram.types import BufferedInputFile
+
+                    async def _send_doc():
+                        bot = Bot(token=bot_token)
+                        try:
+                            doc = BufferedInputFile(excel_bytes, filename=filename)
+                            caption = (
+                                f"📊 <b>CArenda umumiy park hisoboti</b>\n"
+                                f"🏢 Arendator: <b>{owner.full_name or owner.username}</b>"
+                            )
+                            await bot.send_document(
+                                chat_id=request.user.telegram_id,
+                                document=doc,
+                                caption=caption,
+                                parse_mode="HTML",
+                            )
+                            return True
+                        finally:
+                            await bot.session.close()
+
+                    sent_to_bot = bool(asyncio.run(_send_doc()))
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning("Failed to send tenant excel to bot: %s", e)
+
         response = HttpResponse(
             excel_bytes,
             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
-        response["Content-Disposition"] = 'attachment; filename="carenda_hisobot.xlsx"'
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        if sent_to_bot:
+            response["X-Sent-To-Bot"] = "1"
         return response
 
 
@@ -685,7 +725,11 @@ class ContractExcelExportAPIView(APIView):
         clean_plate = re.sub(r"\s+", "", contract.car.plate_number)
         filename = f"shartnoma_{clean_plate}_{contract.id}.xlsx"
 
-        send_to_bot = request.query_params.get("send_to_bot") in ("1", "true", "True")
+        sent_to_bot = False
+        send_to_bot = (
+            request.query_params.get("send_to_bot") in ("1", "true", "True")
+            or bool(request.user.telegram_id and "tma " in request.headers.get("Authorization", "").lower())
+        )
         if send_to_bot and request.user.telegram_id:
             bot_token = getattr(settings, "TELEGRAM_BOT_TOKEN", None)
             if bot_token and bot_token != "dev_bot_token_123456":
@@ -700,7 +744,8 @@ class ContractExcelExportAPIView(APIView):
                             doc = BufferedInputFile(excel_bytes, filename=filename)
                             caption = (
                                 f"📄 <b>Shartnoma hisoboti:</b> {contract.car.name} ({contract.car.plate_number})\n"
-                                f"👤 Mijoz: {contract.driver.full_name}"
+                                f"👤 Mijoz: <b>{contract.driver.full_name}</b>\n"
+                                f"📅 Boshlangan sana: <b>{contract.start_date}</b>"
                             )
                             await bot.send_document(
                                 chat_id=request.user.telegram_id,
@@ -708,10 +753,11 @@ class ContractExcelExportAPIView(APIView):
                                 caption=caption,
                                 parse_mode="HTML",
                             )
+                            return True
                         finally:
                             await bot.session.close()
 
-                    asyncio.run(_send_doc())
+                    sent_to_bot = bool(asyncio.run(_send_doc()))
                 except Exception as e:
                     import logging
                     logging.getLogger(__name__).warning("Failed to send contract excel to bot: %s", e)
@@ -721,6 +767,8 @@ class ContractExcelExportAPIView(APIView):
             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
         response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        if sent_to_bot:
+            response["X-Sent-To-Bot"] = "1"
         return response
 
 

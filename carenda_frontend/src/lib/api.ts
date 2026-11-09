@@ -39,6 +39,11 @@ declare global {
         ready?: () => void;
         expand?: () => void;
         disableVerticalSwipes?: () => void;
+        showAlert?: (message: string, callback?: () => void) => void;
+        HapticFeedback?: {
+          notificationOccurred?: (type: string) => void;
+          impactOccurred?: (style: string) => void;
+        };
         [key: string]: unknown;
       };
     };
@@ -414,13 +419,14 @@ export async function postponePayment(
 
 // Excel Export
 export async function downloadExcelReport(): Promise<void> {
-  const cleanEndpoint = "/export/excel/";
-  const url = `${API_BASE_URL}${cleanEndpoint}`;
-
   let initData = "";
   if (typeof window !== "undefined") {
     initData = window.Telegram?.WebApp?.initData?.trim() || "";
   }
+  const isTelegram = Boolean(initData);
+  const cleanEndpoint = `/export/excel/${isTelegram ? "?send_to_bot=1" : ""}`;
+  const url = `${API_BASE_URL}${cleanEndpoint}`;
+
   const authHeaderValue = initData ? `tma ${initData}` : "tma dev";
 
   const response = await fetch(url, {
@@ -431,6 +437,25 @@ export async function downloadExcelReport(): Promise<void> {
 
   if (!response.ok) {
     throw new Error("Excel hisobotini yuklab olishda xatolik yuz berdi.");
+  }
+
+  // Inside Telegram WebApp, mobile WebViews block blob downloads and trigger broken "open link" popups.
+  // Instead, the file is delivered directly to the user's Telegram chat by the bot.
+  if (isTelegram) {
+    const tg = window.Telegram?.WebApp;
+    try {
+      tg?.HapticFeedback?.notificationOccurred?.("success");
+    } catch {
+      // ignore
+    }
+    const msg =
+      "✅ Umumiy park Excel (.xlsx) hisoboti Telegram botingizga yuborildi!\n\nBot chatidan faylni ko'rishingiz yoki yuklab olishingiz mumkin.";
+    if (typeof tg?.showAlert === "function") {
+      tg.showAlert(msg);
+    } else {
+      alert(msg);
+    }
+    return;
   }
 
   const blob = await response.blob();
@@ -448,13 +473,14 @@ export async function downloadSingleContractExcel(
   contractId: number,
   filename?: string
 ): Promise<void> {
-  const cleanEndpoint = `/contracts/${contractId}/export/excel/`;
-  const url = `${API_BASE_URL}${cleanEndpoint}`;
-
   let initData = "";
   if (typeof window !== "undefined") {
     initData = window.Telegram?.WebApp?.initData?.trim() || "";
   }
+  const isTelegram = Boolean(initData);
+  const cleanEndpoint = `/contracts/${contractId}/export/excel/${isTelegram ? "?send_to_bot=1" : ""}`;
+  const url = `${API_BASE_URL}${cleanEndpoint}`;
+
   const authHeaderValue = initData ? `tma ${initData}` : "tma dev";
 
   const response = await fetch(url, {
@@ -465,6 +491,25 @@ export async function downloadSingleContractExcel(
 
   if (!response.ok) {
     throw new Error("Shartnoma Excel hisobotini yuklab olishda xatolik yuz berdi.");
+  }
+
+  // Inside Telegram WebApp, mobile WebViews block blob downloads and trigger broken "open link" popups.
+  // Instead, the file is delivered directly to the user's Telegram chat by the bot.
+  if (isTelegram) {
+    const tg = window.Telegram?.WebApp;
+    try {
+      tg?.HapticFeedback?.notificationOccurred?.("success");
+    } catch {
+      // ignore
+    }
+    const msg =
+      "✅ Shartnoma Excel (.xlsx) hisoboti Telegram botingizga yuborildi!\n\nBot chatidan faylni ko'rishingiz yoki yuklab olishingiz mumkin.";
+    if (typeof tg?.showAlert === "function") {
+      tg.showAlert(msg);
+    } else {
+      alert(msg);
+    }
+    return;
   }
 
   const blob = await response.blob();
