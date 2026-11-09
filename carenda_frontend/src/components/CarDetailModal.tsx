@@ -388,34 +388,35 @@ export function CarDetailModal({
                         return (
                           <div
                             key={p.id}
-                            className={`p-3.5 rounded-2xl flex items-center justify-between text-xs transition shadow-2xs ${
+                            className={`p-3.5 rounded-2xl flex items-center justify-between gap-2.5 text-xs transition shadow-2xs ${
                               isLocked
-                                ? "bg-slate-50/70 border border-slate-200/60 opacity-65 cursor-not-allowed select-none"
+                                ? "bg-slate-50/75 border border-slate-200/60 opacity-80"
                                 : "bg-white border border-slate-200/80 hover:border-slate-300"
                             }`}
                           >
-                            <div className="space-y-1">
-                              <div className="flex items-center gap-2">
-                                <span className={`font-bold flex items-center gap-1 ${isLocked ? "text-slate-500" : "text-slate-900"}`}>
-                                  {isLocked && <Lock className="w-3 h-3 text-slate-400" />}
+                            <div className="space-y-1 min-w-0 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className={`font-bold whitespace-nowrap ${isLocked ? "text-slate-600" : "text-slate-900"}`}>
                                   {p.month_number}-oy
                                 </span>
-                                <span
-                                  className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${pInfo.bg} ${pInfo.text}`}
-                                >
-                                  {pInfo.label}
-                                </span>
-                                {isLocked && (
-                                  <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200/60 px-1.5 py-0.5 rounded font-medium">
+                                {isLocked ? (
+                                  <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-amber-50 text-amber-700 border border-amber-200/70 whitespace-nowrap flex items-center gap-1">
+                                    <Lock className="w-2.5 h-2.5 shrink-0 text-amber-600" />
                                     Oldingi oy to&apos;lanmagan
+                                  </span>
+                                ) : (
+                                  <span
+                                    className={`text-[10px] px-2 py-0.5 rounded-full font-semibold whitespace-nowrap ${pInfo.bg} ${pInfo.text}`}
+                                  >
+                                    {pInfo.label}
                                   </span>
                                 )}
                               </div>
-                              <p className="text-[11px] text-slate-500 flex items-center gap-1">
-                                <Clock className="w-3 h-3 text-slate-400" />
+                              <p className="text-[11px] text-slate-500 flex items-center gap-1 whitespace-nowrap">
+                                <Clock className="w-3 h-3 text-slate-400 shrink-0" />
                                 {formatDate(p.due_date)}
                               </p>
-                              <div className="text-[11px] text-slate-600">
+                              <div className="text-[11px] text-slate-600 whitespace-nowrap">
                                 To&apos;langan:{" "}
                                 <span className="text-emerald-600 font-semibold">
                                   {formatUSD(p.paid_amount)}
@@ -433,29 +434,31 @@ export function CarDetailModal({
                               )}
                             </div>
 
-                            {isPayable && (
-                              isLocked ? (
-                                <button
-                                  type="button"
-                                  disabled
-                                  className="px-3 py-1.5 bg-slate-100 text-slate-400 font-medium rounded-xl text-xs shrink-0 cursor-not-allowed select-none border border-slate-200 flex items-center gap-1 opacity-80"
-                                  title="Oldingi oylar to'lovi yopilmaguncha bu oyni to'lab bo'lmaydi"
-                                >
-                                  <Lock className="w-3 h-3 text-slate-400" />
-                                  To&apos;lov
-                                </button>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    onPaymentClick(p, car.name, activeContract.driver_name)
-                                  }
-                                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-semibold rounded-xl shadow-xs transition shrink-0 cursor-pointer text-xs"
-                                >
-                                  To&apos;lov
-                                </button>
-                              )
-                            )}
+                            <div className="shrink-0">
+                              {isPayable && (
+                                isLocked ? (
+                                  <button
+                                    type="button"
+                                    disabled
+                                    className="px-3 py-1.5 bg-slate-100 text-slate-400 font-medium rounded-xl text-xs shrink-0 cursor-not-allowed select-none border border-slate-200/80 flex items-center gap-1 whitespace-nowrap"
+                                    title="Oldingi oylar to'lovi yopilmaguncha bu oyni to'lab bo'lmaydi"
+                                  >
+                                    <Lock className="w-3.5 h-3.5 text-slate-400" />
+                                    To&apos;lov
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      onPaymentClick(p, car.name, activeContract.driver_name)
+                                    }
+                                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-semibold rounded-xl shadow-xs transition shrink-0 cursor-pointer text-xs whitespace-nowrap"
+                                  >
+                                    To&apos;lov
+                                  </button>
+                                )
+                              )}
+                            </div>
                           </div>
                         );
                       })}
