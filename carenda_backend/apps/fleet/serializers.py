@@ -161,6 +161,7 @@ class CarListSerializer(serializers.ModelSerializer):
 
         return {
             "contract_id": active_contract.id,
+            "driver_id": active_contract.driver_id,
             "driver_name": active_contract.driver.full_name,
             "driver_phone": active_contract.driver.phone,
             "driver_secondary_phone": active_contract.driver.secondary_phone,

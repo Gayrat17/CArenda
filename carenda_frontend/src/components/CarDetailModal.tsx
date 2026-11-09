@@ -14,8 +14,10 @@ import {
   FileSpreadsheet,
   MessageSquare,
   Lock,
+  Plus,
+  Pencil,
 } from "lucide-react";
-import { downloadSingleContractExcel, getCarDetail, updateCar } from "@/lib/api";
+import { downloadSingleContractExcel, getCarDetail, updateCar, updateDriver } from "@/lib/api";
 import { CarDetail, Payment } from "@/types/fleet";
 import {
   formatDate,
@@ -25,6 +27,7 @@ import {
   getPaymentStatusInfo,
   cleanPhoneNumber,
   initiatePhoneCall,
+  formatUzbekPhone,
 } from "@/lib/utils";
 import { CloseContractModal } from "./CloseContractModal";
 
@@ -50,6 +53,37 @@ export function CarDetailModal({
   const [error, setError] = useState<string | null>(null);
   const [closeModalOpen, setCloseModalOpen] = useState(false);
   const [downloadingExcel, setDownloadingExcel] = useState(false);
+  const [editingSecondaryPhone, setEditingSecondaryPhone] = useState(false);
+  const [secondaryPhoneInput, setSecondaryPhoneInput] = useState("");
+  const [savingSecondaryPhone, setSavingSecondaryPhone] = useState(false);
+
+  const handleSaveSecondaryPhone = async () => {
+    if (!activeContract?.driver) return;
+    try {
+      setSavingSecondaryPhone(true);
+      const digits = secondaryPhoneInput.replace(/\D/g, "");
+      const national = digits.startsWith("998") ? digits.slice(3) : digits;
+
+      let phoneToSave = "";
+      if (national.length > 0) {
+        if (national.length !== 9) {
+          alert("Qo'shimcha telefon raqami to'liq kiritilishi shart (+998 XX XXX XX XX) yoki bo'sh qoldiring.");
+          setSavingSecondaryPhone(false);
+          return;
+        }
+        phoneToSave = secondaryPhoneInput.trim();
+      }
+
+      await updateDriver(activeContract.driver, { secondary_phone: phoneToSave });
+      await fetchDetail();
+      setEditingSecondaryPhone(false);
+      onRefreshParent();
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Qo'shimcha raqamni saqlashda xatolik yuz berdi.");
+    } finally {
+      setSavingSecondaryPhone(false);
+    }
+  };
 
   const fetchDetail = async () => {
     if (!carId) return;
@@ -298,24 +332,101 @@ export function CarDetailModal({
                       </a>
 
                       {/* Secondary Phone if available */}
-                      {activeContract.driver_secondary_phone && (
-                        <a
-                          href={`tel:${cleanPhoneNumber(activeContract.driver_secondary_phone)}`}
-                          className="flex items-center justify-between bg-white px-3 py-2.5 rounded-xl border border-blue-100/80 shadow-2xs hover:border-blue-300 transition cursor-pointer active:scale-98"
+                      {activeContract.driver_secondary_phone ? (
+                        <div className="flex items-center gap-1.5">
+                          <a
+                            href={`tel:${cleanPhoneNumber(activeContract.driver_secondary_phone)}`}
+                            className="flex-1 flex items-center justify-between bg-white px-3 py-2.5 rounded-xl border border-blue-100/80 shadow-2xs hover:border-blue-300 transition cursor-pointer active:scale-98"
+                          >
+                            <div>
+                              <span className="text-[10px] text-slate-400 block font-medium">Qo&apos;shimcha raqam</span>
+                              <span className="text-xs text-slate-800 font-mono font-bold">
+                                {activeContract.driver_secondary_phone}
+                              </span>
+                            </div>
+                            <div
+                              className="p-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-2xs transition active:scale-95 shrink-0"
+                              title="Qo'shimcha raqamga qo'ng'iroq qilish"
+                            >
+                              <Phone className="w-3.5 h-3.5" />
+                            </div>
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingSecondaryPhone(true);
+                              setSecondaryPhoneInput(activeContract.driver_secondary_phone || "+998 ");
+                            }}
+                            className="p-2.5 bg-white hover:bg-slate-50 text-slate-500 hover:text-slate-700 border border-slate-200/90 rounded-xl transition cursor-pointer shadow-2xs active:scale-95 shrink-0"
+                            title="Tahrirlash"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ) : !editingSecondaryPhone ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingSecondaryPhone(true);
+                            setSecondaryPhoneInput("+998 ");
+                          }}
+                          className="w-full flex items-center justify-center gap-1.5 py-2 px-3 bg-white hover:bg-blue-50 text-blue-600 border border-dashed border-blue-200 rounded-xl text-xs font-semibold transition active:scale-98 cursor-pointer shadow-2xs"
                         >
-                          <div>
-                            <span className="text-[10px] text-slate-400 block font-medium">Qo&apos;shimcha raqam</span>
-                            <span className="text-xs text-slate-800 font-mono font-bold">
-                              {activeContract.driver_secondary_phone}
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Qo&apos;shimcha telefon raqami qo&apos;shish</span>
+                        </button>
+                      ) : null}
+
+                      {/* Inline Form to Add / Edit Secondary Phone */}
+                      {editingSecondaryPhone && (
+                        <div className="p-3 bg-white border border-blue-200 rounded-xl space-y-2 shadow-2xs animate-in fade-in duration-150">
+                          <div className="flex items-center justify-between">
+                            <label className="block text-[11px] font-semibold text-slate-700">
+                              Qo&apos;shimcha telefon raqami
+                            </label>
+                            <span className="text-[10px] text-slate-400 font-normal">
+                              ixtiyoriy
                             </span>
                           </div>
-                          <div
-                            className="p-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-2xs transition active:scale-95 shrink-0"
-                            title="Qo'shimcha raqamga qo'ng'iroq qilish"
-                          >
-                            <Phone className="w-3.5 h-3.5" />
+                          <input
+                            type="tel"
+                            value={secondaryPhoneInput}
+                            onChange={(e) => setSecondaryPhoneInput(formatUzbekPhone(e.target.value, false))}
+                            placeholder="+998 90 123 45 67"
+                            className="w-full px-3 py-2 text-xs font-mono font-bold bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                          />
+                          <div className="flex items-center justify-between pt-1">
+                            {activeContract.driver_secondary_phone ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSecondaryPhoneInput("");
+                                }}
+                                className="text-[11px] text-rose-600 hover:text-rose-700 font-medium cursor-pointer"
+                              >
+                                Raqamni o&apos;chirish
+                              </button>
+                            ) : <div />}
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setEditingSecondaryPhone(false)}
+                                disabled={savingSecondaryPhone}
+                                className="px-2.5 py-1 text-xs text-slate-500 hover:text-slate-700 font-medium cursor-pointer"
+                              >
+                                Bekor qilish
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleSaveSecondaryPhone}
+                                disabled={savingSecondaryPhone}
+                                className="px-3.5 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg shadow-2xs transition active:scale-95 cursor-pointer disabled:opacity-50"
+                              >
+                                {savingSecondaryPhone ? "Saqlanmoqda..." : "Saqlash"}
+                              </button>
+                            </div>
                           </div>
-                        </a>
+                        </div>
                       )}
                     </div>
                   </div>

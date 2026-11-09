@@ -349,6 +349,16 @@ export async function createDriver(
   });
 }
 
+export async function updateDriver(
+  driverId: number,
+  payload: Partial<DriverCreatePayload>
+): Promise<Driver> {
+  return apiFetch<Driver>(`/drivers/${driverId}/`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
 // Contracts & Calculations
 export async function calculateContractPreview(
   payload: CalculatePayload
