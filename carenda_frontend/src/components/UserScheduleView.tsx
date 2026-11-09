@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { User, UserScheduleContract } from "@/types/fleet";
 import { getUserSchedule } from "@/lib/api";
-import { formatUSD, formatDate } from "@/lib/utils";
+import { formatUSD, formatDate, cleanPhoneNumber, initiatePhoneCall } from "@/lib/utils";
 import { resolveUserIdentity } from "@/lib/identity";
 
 interface UserScheduleViewProps {
@@ -206,8 +206,13 @@ export function UserScheduleView({ user, initialContracts, onRefreshUser }: User
                 </p>
                 {activeContract.owner_phone && (
                   <a
-                    href={`tel:${activeContract.owner_phone}`}
-                    className="mt-1 inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-xl hover:bg-emerald-500/30 transition"
+                    href={`tel:${cleanPhoneNumber(activeContract.owner_phone)}`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      initiatePhoneCall(activeContract.owner_phone);
+                    }}
+                    className="mt-1 inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-xl hover:bg-emerald-500/30 transition cursor-pointer active:scale-95"
                   >
                     <Phone className="w-3.5 h-3.5" />
                     <span>Qo&apos;ng&apos;iroq</span>

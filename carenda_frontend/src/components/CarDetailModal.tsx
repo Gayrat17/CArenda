@@ -23,6 +23,8 @@ import {
   formatPercent,
   getContractStatusInfo,
   getPaymentStatusInfo,
+  cleanPhoneNumber,
+  initiatePhoneCall,
 } from "@/lib/utils";
 import { CloseContractModal } from "./CloseContractModal";
 
@@ -277,7 +279,10 @@ export function CarDetailModal({
 
                     <div className="space-y-1.5 pt-1">
                       {/* Primary Phone */}
-                      <div className="flex items-center justify-between bg-white px-3 py-2 rounded-xl border border-blue-100/80 shadow-2xs">
+                      <div
+                        onClick={() => initiatePhoneCall(activeContract.driver_phone)}
+                        className="flex items-center justify-between bg-white px-3 py-2.5 rounded-xl border border-blue-100/80 shadow-2xs hover:border-blue-300 transition cursor-pointer active:scale-98"
+                      >
                         <div>
                           <span className="text-[10px] text-slate-400 block font-medium">Asosiy raqam</span>
                           <span className="text-xs text-slate-800 font-mono font-bold">
@@ -285,8 +290,13 @@ export function CarDetailModal({
                           </span>
                         </div>
                         <a
-                          href={`tel:${activeContract.driver_phone}`}
-                          className="p-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-2xs transition active:scale-95 shrink-0"
+                          href={`tel:${cleanPhoneNumber(activeContract.driver_phone)}`}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            initiatePhoneCall(activeContract.driver_phone);
+                          }}
+                          className="p-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-2xs transition active:scale-95 shrink-0 cursor-pointer"
                           title="Qo'ng'iroq qilish"
                         >
                           <Phone className="w-3.5 h-3.5" />
@@ -295,7 +305,10 @@ export function CarDetailModal({
 
                       {/* Secondary Phone if available */}
                       {activeContract.driver_secondary_phone && (
-                        <div className="flex items-center justify-between bg-white px-3 py-2 rounded-xl border border-blue-100/80 shadow-2xs">
+                        <div
+                          onClick={() => initiatePhoneCall(activeContract.driver_secondary_phone)}
+                          className="flex items-center justify-between bg-white px-3 py-2.5 rounded-xl border border-blue-100/80 shadow-2xs hover:border-blue-300 transition cursor-pointer active:scale-98"
+                        >
                           <div>
                             <span className="text-[10px] text-slate-400 block font-medium">Qo&apos;shimcha raqam</span>
                             <span className="text-xs text-slate-800 font-mono font-bold">
@@ -303,8 +316,13 @@ export function CarDetailModal({
                             </span>
                           </div>
                           <a
-                            href={`tel:${activeContract.driver_secondary_phone}`}
-                            className="p-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-2xs transition active:scale-95 shrink-0"
+                            href={`tel:${cleanPhoneNumber(activeContract.driver_secondary_phone)}`}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              initiatePhoneCall(activeContract.driver_secondary_phone);
+                            }}
+                            className="p-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-2xs transition active:scale-95 shrink-0 cursor-pointer"
                             title="Qo'shimcha raqamga qo'ng'iroq qilish"
                           >
                             <Phone className="w-3.5 h-3.5" />

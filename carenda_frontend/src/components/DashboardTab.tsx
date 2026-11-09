@@ -19,7 +19,7 @@ import {
   Lock,
 } from "lucide-react";
 import { DashboardResponse, OverduePaymentItem, User } from "@/types/fleet";
-import { formatDate, formatUSD } from "@/lib/utils";
+import { formatDate, formatUSD, cleanPhoneNumber, initiatePhoneCall } from "@/lib/utils";
 import { downloadExcelReport } from "@/lib/api";
 import { resolveUserIdentity } from "@/lib/identity";
 
@@ -341,9 +341,14 @@ export function DashboardTab({
                       <div className="flex items-center gap-2">
                         {item.driver_phone && (
                           <a
-                            href={`tel:${item.driver_phone}`}
-                            className="p-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg border border-slate-200/60 transition"
-                            title="Qo'ng'iroq qilish"
+                            href={`tel:${cleanPhoneNumber(item.driver_phone)}`}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              initiatePhoneCall(item.driver_phone);
+                            }}
+                            className="p-2 bg-blue-50 hover:bg-blue-100 active:scale-95 text-blue-600 rounded-lg border border-blue-200/60 transition cursor-pointer flex items-center justify-center shadow-2xs"
+                            title="Haydovchiga qo'ng'iroq qilish"
                           >
                             <Phone className="w-3.5 h-3.5" />
                           </a>

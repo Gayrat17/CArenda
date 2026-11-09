@@ -337,3 +337,31 @@ export function getPaymentStatusInfo(status: string): { label: string; bg: strin
       };
   }
 }
+
+/**
+ * Strips all formatting from phone number to create a valid RFC 3966 URI
+ * (e.g. "+998 90 123 45 67" -> "+998901234567") without illegal spaces.
+ */
+export function cleanPhoneNumber(phone: string | null | undefined): string {
+  if (!phone) return "";
+  const cleaned = phone.trim().replace(/[^\d+]/g, "");
+  if (cleaned.startsWith("998")) {
+    return `+${cleaned}`;
+  }
+  return cleaned;
+}
+
+/**
+ * Initiates a phone call natively across standard mobile browsers and Telegram Mini App WebViews.
+ */
+export function initiatePhoneCall(phone: string | null | undefined): void {
+  const clean = cleanPhoneNumber(phone);
+  if (!clean || typeof window === "undefined") return;
+
+  const telUri = `tel:${clean}`;
+  try {
+    window.location.href = telUri;
+  } catch {
+    window.open(telUri, "_self");
+  }
+}
