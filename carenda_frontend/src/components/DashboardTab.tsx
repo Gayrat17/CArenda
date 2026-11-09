@@ -181,19 +181,32 @@ export function DashboardTab({
           </div>
 
           {/* Subscription Badge */}
-          <div className="flex flex-col items-end gap-1 shrink-0">
+          <div className="flex flex-col items-end gap-0.5 shrink-0">
             <button
               type="button"
               onClick={() => router.push("/subscription")}
-              className="px-3 py-1 text-xs font-semibold uppercase bg-blue-100 hover:bg-blue-200 active:scale-95 text-blue-800 rounded-full transition cursor-pointer flex items-center gap-1 shadow-2xs"
+              className={`px-2.5 py-0.5 text-xs font-semibold rounded-full transition cursor-pointer flex items-center gap-1 shadow-2xs ${
+                user?.is_frozen
+                  ? "bg-rose-100 hover:bg-rose-200 text-rose-800 border border-rose-200"
+                  : (user?.plan || "free").toLowerCase() === "standard"
+                  ? "bg-blue-100 hover:bg-blue-200 text-blue-800 border border-blue-200/60"
+                  : "bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border border-emerald-200/60"
+              }`}
               title="Tariflar va obuna"
             >
-              <span>{user?.plan || "Trial"}</span>
-              <span className="text-[10px] text-blue-600 font-bold">›</span>
+              <span>
+                {user?.is_frozen
+                  ? "Muzlatilgan"
+                  : (user?.plan || "free").toLowerCase() === "standard"
+                  ? "Standart"
+                  : "Free"}
+              </span>
+              <span className="text-[10px] opacity-70 font-bold">›</span>
             </button>
-            <span className="text-[11px] text-slate-500 font-medium">
-              {dashboard?.active_contracts_count || 0} /{" "}
-              {user?.cars_limit || "∞"} shartnoma
+            <span className="text-[10px] text-slate-500 font-medium">
+              {(user?.plan || "free").toLowerCase() === "standard"
+                ? `${dashboard?.active_contracts_count || 0} ta (Cheksiz)`
+                : `${dashboard?.active_contracts_count || 0} / 3 shartnoma`}
             </span>
           </div>
         </div>

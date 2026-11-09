@@ -5,23 +5,22 @@ import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   CheckCircle2,
-  Sparkles,
   Shield,
   Zap,
-  Crown,
   Clock,
   Car,
   Check,
   AlertCircle,
   HelpCircle,
   MessageCircle,
+  AlertTriangle,
 } from "lucide-react";
 import {
-  getPaymentSettings,
+  getSubscriptionSettings,
   getMySubscriptionStatus,
   getBootstrap,
 } from "@/lib/api";
-import { PaymentSettings, SubscriptionStatusResponse } from "@/types/subscription";
+import { SubscriptionSettings, SubscriptionStatusResponse } from "@/types/subscription";
 import { User } from "@/types/fleet";
 import { SubscriptionPaymentModal } from "@/components/SubscriptionPaymentModal";
 
@@ -29,16 +28,12 @@ export default function SubscriptionPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [subStatus, setSubStatus] = useState<SubscriptionStatusResponse | null>(null);
-  const [paymentSettings, setPaymentSettings] = useState<PaymentSettings | null>(null);
+  const [subscriptionSettings, setSubscriptionSettings] = useState<SubscriptionSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Modal State
-  const [selectedPlan, setSelectedPlan] = useState<{
-    type: "standard" | "pro";
-    name: string;
-    price: number;
-  } | null>(null);
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [showSuccessToast, setShowSuccessToast] = useState(false);
 
   const fetchData = useCallback(async () => {
@@ -48,7 +43,7 @@ export default function SubscriptionPage() {
       const [boot, statusData, settingsData] = await Promise.all([
         getBootstrap().catch(() => null),
         getMySubscriptionStatus({ forceRefresh: true }).catch(() => null),
-        getPaymentSettings({ forceRefresh: true }).catch(() => null),
+        getSubscriptionSettings({ forceRefresh: true }).catch(() => null),
       ]);
 
       if (boot?.me) {
@@ -58,7 +53,7 @@ export default function SubscriptionPage() {
         setSubStatus(statusData);
       }
       if (settingsData) {
-        setPaymentSettings(settingsData);
+        setSubscriptionSettings(settingsData);
       }
     } catch (err: unknown) {
       setError(
@@ -100,42 +95,48 @@ export default function SubscriptionPage() {
     }
   }, [router]);
 
-  const activePlan = (subStatus?.plan || user?.plan || "trial").toLowerCase();
-  const standardPrice = paymentSettings?.standard_plan_price || 120000;
-  const proPrice = paymentSettings?.pro_plan_price || 250000;
+  const rawPlan = (subStatus?.plan || user?.plan || "free").toLowerCase();
+  const isFreePlan = rawPlan === "free" || rawPlan === "trial";
+  const planDisplay = isFreePlan ? "Free (Boshlang'ich)" : "Standart";
 
-  // Calculate remaining days
-  const expiresAtStr = subStatus?.expires_at || user?.expires_at || "";
-  let remainingDaysText = "";
-  if (expiresAtStr) {
-    const expiresDate = new Date(expiresAtStr);
-    const now = new Date();
-    const diffMs = expiresDate.getTime() - now.getTime();
-    const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-    if (diffDays > 0) {
-      remainingDaysText = `${diffDays} kun qoldi`;
-    } else {
-      remainingDaysText = "Muddati tugagan";
-    }
-  }
+  const standartPrice =
+    subscriptionSettings?.standart_price ||
+    subscriptionSettings?.standard_plan_price ||
+    150000;
 
+  const isFrozen = Boolean(subStatus?.is_frozen ?? user?.is_frozen);
+  const isActive = Boolean(subStatus?.is_active ?? user?.is_subscription_active) && !isFrozen;
+
+  // Remaining days calculation
+  const remainingDays =
+    typeof subStatus?.remaining_days === "number"
+      ? subStatus.remaining_days
+      : (() => {
+          const targetStr = subStatus?.expires_at || user?.expires_at || "";
+          if (!targetStr) return 0;
+          const diffMs = new Date(targetStr).getTime() - Date.now();
+          return Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+        })();
+
+  const contractsCount =
+    subStatus?.active_contracts_count ??
+    subStatus?.contracts_count ??
+    subStatus?.cars_count ??
+    user?.cars_count ??
+    0;
+
+  const maxContracts = subscriptionSettings?.free_max_contracts || 3;
   const pendingReq = subStatus?.pending_request;
 
-  const handleOpenPlanModal = (type: "standard" | "pro") => {
-    const name = type === "standard" ? "Standart" : "Pro (Premium)";
-    const price = type === "standard" ? standardPrice : proPrice;
-    setSelectedPlan({ type, name, price });
-  };
-
   const handlePaymentSuccess = () => {
-    setSelectedPlan(null);
+    setPaymentModalOpen(false);
     setShowSuccessToast(true);
     fetchData();
     setTimeout(() => setShowSuccessToast(false), 5000);
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 pb-16">
+    <div className="min-h-screen bg-slate-50 text-slate-900 pb-20">
       {/* Sticky Navigation Header */}
       <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-4 py-3 flex items-center justify-between shadow-2xs">
         <div className="flex items-center gap-2">
@@ -161,9 +162,34 @@ export default function SubscriptionPage() {
           <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-2xl flex items-center gap-2.5 shadow-xs animate-in fade-in duration-200">
             <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
             <div>
-              <p className="font-bold">To'lov so'rovi yuborildi!</p>
+              <p className="font-bold">To&apos;lov so&apos;rovi yuborildi!</p>
               <p className="text-[11px] text-emerald-700 mt-0.5">
-                Admin to'lovni tekshirgach obunangiz 30 kunga faollashtiriladi.
+                Admin to&apos;lovni tekshirgach obunangiz 30 kunga faollashtiriladi.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Urgent Warning Banners */}
+        {isFrozen && (
+          <div className="p-3.5 bg-rose-50 border border-rose-300 text-rose-900 text-xs rounded-2xl flex items-start gap-2.5 shadow-xs">
+            <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold text-rose-800">⚠️ Hisobingiz muzlatilgan!</p>
+              <p className="text-[11px] text-rose-700 mt-0.5 leading-relaxed">
+                To&apos;lov muddati o&apos;tganligi sababli hisobingiz muzlatilgan. Xizmatlardan to&apos;liq foydalanish uchun Standart tarif to&apos;lovini amalga oshiring.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {!isFrozen && !isActive && !loading && (
+          <div className="p-3.5 bg-amber-50 border border-amber-300 text-amber-900 text-xs rounded-2xl flex items-start gap-2.5 shadow-xs">
+            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold text-amber-900">⚠️ Obuna muddatingiz tugagan!</p>
+              <p className="text-[11px] text-amber-800 mt-0.5 leading-relaxed">
+                Yangi shartnomalar tuzish va tizimdan cheklovlarsiz foydalanish uchun Standart tarifga o&apos;ting.
               </p>
             </div>
           </div>
@@ -175,10 +201,10 @@ export default function SubscriptionPage() {
             <Clock className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
             <div className="space-y-0.5">
               <p className="font-bold">
-                ⏳ To'lov so'rovingiz ko'rib chiqilmoqda
+                ⏳ To&apos;lov so&apos;rovingiz ko&apos;rib chiqilmoqda
               </p>
               <p className="text-[11px] text-amber-800 leading-relaxed">
-                Sizning <b>{pendingReq.plan_display}</b> tarifi ({pendingReq.amount.toLocaleString()} UZS) uchun so'rovingiz admin tomonidan tasdiqlanishi kutilmoqda.
+                Sizning <b>{pendingReq.plan_display || "Standart"}</b> tarifi ({pendingReq.amount.toLocaleString()} UZS) uchun so&apos;rovingiz admin tomonidan tasdiqlanishi kutilmoqda.
               </p>
             </div>
           </div>
@@ -205,48 +231,47 @@ export default function SubscriptionPage() {
                   Joriy holat
                 </p>
                 <h2 className="font-bold text-base capitalize">
-                  {activePlan === "pro"
-                    ? "Pro (Premium)"
-                    : activePlan === "standard" || activePlan === "basic"
-                    ? "Standart"
-                    : "Sinov (Trial)"}
+                  {planDisplay}
                 </h2>
               </div>
             </div>
             <span
               className={`px-2.5 py-1 text-xs font-semibold rounded-full ${
-                subStatus?.is_active ?? user?.is_subscription_active
+                isFrozen
+                  ? "bg-rose-500/20 text-rose-300 border border-rose-500/30"
+                  : isActive
                   ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-                  : "bg-rose-500/20 text-rose-300 border border-rose-500/30"
+                  : "bg-amber-500/20 text-amber-300 border border-amber-500/30"
               }`}
             >
-              {subStatus?.is_active ?? user?.is_subscription_active
-                ? "Faol"
-                : "Tugagan"}
+              {isFrozen ? "Muzlatilgan" : isActive ? "Faol" : "Muddati tugagan"}
             </span>
           </div>
 
           <div className="grid grid-cols-2 gap-2 pt-1 border-t border-white/10">
             <div className="bg-white/5 p-2.5 rounded-xl border border-white/5 space-y-0.5">
               <span className="text-[10px] text-slate-400 block font-medium">
-                Amal qilish muddati
+                Qolgan muddat
               </span>
               <p className="text-xs font-semibold text-slate-100 flex items-center gap-1">
                 <Clock className="w-3.5 h-3.5 text-blue-400" />
-                {remainingDaysText || "Muddatsiz"}
+                {isFrozen
+                  ? "Muzlatilgan"
+                  : isActive && remainingDays > 0
+                  ? `${remainingDays} kun qoldi`
+                  : "Muddati tugagan"}
               </p>
             </div>
 
             <div className="bg-white/5 p-2.5 rounded-xl border border-white/5 space-y-0.5">
               <span className="text-[10px] text-slate-400 block font-medium">
-                Parkdagi mashinalar
+                Shartnomalar soni
               </span>
               <p className="text-xs font-semibold text-slate-100 flex items-center gap-1">
                 <Car className="w-3.5 h-3.5 text-emerald-400" />
-                {(subStatus?.cars_count ?? user?.cars_count) || 0} /{" "}
-                {(subStatus?.cars_limit ?? user?.cars_limit ?? 0) >= 9999
-                  ? "Cheksiz"
-                  : `${subStatus?.cars_limit ?? user?.cars_limit ?? 0} ta`}
+                {isFreePlan
+                  ? `${contractsCount} / ${maxContracts} ta`
+                  : `${contractsCount} ta (Cheksiz)`}
               </p>
             </div>
           </div>
@@ -258,190 +283,141 @@ export default function SubscriptionPage() {
             Mavjud Tarif Rejalari
           </h2>
           <p className="text-[11px] text-slate-500">
-            Park hajmiga mos qulay tarifni tanlang
+            Oddiy va shaffof 2 bosqichli tarif tizimi
           </p>
         </div>
 
-        {/* Pricing Tiers List */}
+        {/* STRICT 2-TIER COMPARISON CARDS */}
         <div className="space-y-3.5">
-          {/* 1. Trial Tier */}
-          <div className="p-4 bg-white border border-slate-200/90 rounded-2xl space-y-3 shadow-2xs relative">
+          {/* TIER 1: Free (Boshlang'ich) */}
+          <div
+            className={`p-4 bg-white border rounded-2xl space-y-3 shadow-2xs relative ${
+              isFreePlan
+                ? "border-emerald-300 ring-1 ring-emerald-200"
+                : "border-slate-200/90"
+            }`}
+          >
             <div className="flex items-start justify-between">
               <div>
-                <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md uppercase tracking-wide">
-                  Sinov muddati
+                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md uppercase tracking-wide">
+                  Boshlang&apos;ich
                 </span>
                 <h3 className="font-bold text-slate-900 text-base mt-1">
-                  Sinov (Trial)
+                  Free (Boshlang&apos;ich)
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Tizimni bepul sinab ko'rish uchun
+                  Yangi foydalanuvchilar uchun 2 oylik bepul sinov
                 </p>
               </div>
               <div className="text-right">
                 <span className="text-lg font-extrabold text-slate-900">
                   Bepul
                 </span>
-                <span className="block text-[10px] text-slate-400">7 kun</span>
+                <span className="block text-[10px] text-slate-400">
+                  2 oy davomida
+                </span>
               </div>
             </div>
 
             <ul className="space-y-1.5 text-xs text-slate-600 border-t border-slate-100 pt-2.5">
               <li className="flex items-center gap-2">
                 <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                <span>3 tagacha mashina va shartnoma</span>
+                <span>Maksimal <b>3 ta shartnoma</b> (mashina)</span>
               </li>
               <li className="flex items-center gap-2">
                 <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                <span>Oylik to'lovlar jadvali</span>
+                <span><b>60 kun (2 oy)</b> to&apos;liq bepul foydalanish</span>
               </li>
               <li className="flex items-center gap-2">
                 <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                <span>Telegram bot orqali bildirishnomalar</span>
+                <span>Oylik to&apos;lovlar jadvali va hisob-kitoblar</span>
+              </li>
+              <li className="flex items-center gap-2 text-slate-500 text-[11px]">
+                <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                <span>2 oydan so&apos;ng Standart tarifga o&apos;tish majburiy</span>
               </li>
             </ul>
 
-            {activePlan === "trial" && (
-              <div className="w-full py-2 bg-slate-100 text-slate-600 text-center rounded-xl text-xs font-semibold">
-                Sizning joriy tarifingiz
+            {isFreePlan ? (
+              <div className="w-full py-2 bg-emerald-50 text-emerald-700 text-center rounded-xl text-xs font-semibold border border-emerald-200/60">
+                ✓ Sizning joriy tarifingiz
+              </div>
+            ) : (
+              <div className="w-full py-2 bg-slate-50 text-slate-400 text-center rounded-xl text-xs font-medium">
+                Boshlang&apos;ich sinov tarifi
               </div>
             )}
           </div>
 
-          {/* 2. Standart Tier */}
-          <div className="p-4 bg-white border-2 border-blue-500/70 rounded-2xl space-y-3 shadow-xs relative">
-            <div className="absolute -top-2.5 right-4 bg-blue-600 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider shadow-2xs">
-              Ommabop
+          {/* TIER 2: Standart (To'liq) */}
+          <div className="p-4 bg-white border-2 border-blue-600 rounded-2xl space-y-3 shadow-sm relative">
+            <div className="absolute -top-2.5 right-4 bg-blue-600 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider shadow-2xs flex items-center gap-1">
+              <Zap className="w-3 h-3 text-amber-300" />
+              To&apos;liq Tarif
             </div>
 
             <div className="flex items-start justify-between">
               <div>
-                <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md uppercase tracking-wide flex items-center gap-1 w-fit">
+                <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md uppercase tracking-wide flex items-center gap-1 w-fit">
                   <Zap className="w-3 h-3 text-blue-600" />
                   Standart
                 </span>
                 <h3 className="font-bold text-slate-900 text-base mt-1">
-                  Standart Reja
+                  Standart (To&apos;liq)
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Kichik va o'rta avtoparklar uchun
+                  Cheksiz imkoniyatlar va to&apos;liq avtomatlashtirish
                 </p>
               </div>
               <div className="text-right">
                 <span className="text-lg font-extrabold text-blue-600">
-                  {standardPrice.toLocaleString("uz-UZ")}
+                  {standartPrice.toLocaleString("uz-UZ")}
                 </span>
                 <span className="block text-[10px] text-slate-400">
-                  UZS / oy
+                  UZS / oy (30 kun)
                 </span>
               </div>
             </div>
 
             <ul className="space-y-1.5 text-xs text-slate-600 border-t border-slate-100 pt-2.5">
-              <li className="flex items-center gap-2 font-medium text-slate-800">
+              <li className="flex items-center gap-2 font-bold text-slate-900">
                 <Check className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                <span>15 tagacha mashina va shartnoma</span>
+                <span>Cheksiz shartnomalar va mashinalar</span>
               </li>
               <li className="flex items-center gap-2">
                 <Check className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                <span>Avtomatlashtirilgan Telegram eslatmalari</span>
+                <span>Barcha hisob-kitob va boshqaruv funksiyalari</span>
               </li>
               <li className="flex items-center gap-2">
                 <Check className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                <span>Kechikkan to'lovlarni nazorat qilish</span>
+                <span>Excel (.xlsx) to&apos;liq hisobotlar eksporti</span>
               </li>
               <li className="flex items-center gap-2">
                 <Check className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                <span>Mijozlar shaxsiy kabineti</span>
+                <span>Telegram bot orqali avtomatik to&apos;lov eslatmalari</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <Check className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                <span>Tezkor 24/7 qo&apos;llab-quvvatlash</span>
               </li>
             </ul>
 
             <button
-              onClick={() => handleOpenPlanModal("standard")}
-              className={`w-full py-2.5 px-4 font-bold text-xs rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 ${
-                activePlan === "standard" || activePlan === "basic"
-                  ? "bg-slate-100 hover:bg-slate-200 text-slate-700"
-                  : "bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white shadow-xs"
-              }`}
+              onClick={() => setPaymentModalOpen(true)}
+              className="w-full py-3 px-4 font-bold text-xs rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white shadow-xs"
             >
-              <Zap className="w-3.5 h-3.5" />
+              <Zap className="w-4 h-4 text-amber-300" />
               <span>
-                {activePlan === "standard" || activePlan === "basic"
-                  ? "Muddatni 30 kunga uzaytirish"
-                  : "Standart tarifiga o'tish"}
-              </span>
-            </button>
-          </div>
-
-          {/* 3. Pro Tier */}
-          <div className="p-4 bg-gradient-to-b from-indigo-50/70 to-white border-2 border-indigo-500 rounded-2xl space-y-3 shadow-xs relative">
-            <div className="absolute -top-2.5 right-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider shadow-2xs flex items-center gap-1">
-              <Crown className="w-3 h-3 text-amber-300" />
-              Eng yaxshi tanlov
-            </div>
-
-            <div className="flex items-start justify-between">
-              <div>
-                <span className="text-[10px] font-bold text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded-md uppercase tracking-wide flex items-center gap-1 w-fit">
-                  <Crown className="w-3 h-3 text-indigo-700" />
-                  Premium
-                </span>
-                <h3 className="font-bold text-slate-900 text-base mt-1">
-                  Pro (Premium)
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Cheksiz imkoniyatlar va eksport
-                </p>
-              </div>
-              <div className="text-right">
-                <span className="text-lg font-extrabold text-indigo-700">
-                  {proPrice.toLocaleString("uz-UZ")}
-                </span>
-                <span className="block text-[10px] text-slate-400">
-                  UZS / oy
-                </span>
-              </div>
-            </div>
-
-            <ul className="space-y-1.5 text-xs text-slate-600 border-t border-indigo-100 pt-2.5">
-              <li className="flex items-center gap-2 font-bold text-indigo-900">
-                <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                <span>Cheksiz mashinalar va shartnomalar</span>
-              </li>
-              <li className="flex items-center gap-2 font-medium text-slate-800">
-                <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                <span>Excel (.xlsx) to'liq hisobotlar eksporti</span>
-              </li>
-              <li className="flex items-center gap-2">
-                <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                <span>Avtomatlashtirilgan ertalabki eslatmalar</span>
-              </li>
-              <li className="flex items-center gap-2">
-                <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                <span>Ustuvor qo'llab-quvvatlash (24/7)</span>
-              </li>
-            </ul>
-
-            <button
-              onClick={() => handleOpenPlanModal("pro")}
-              className={`w-full py-2.5 px-4 font-bold text-xs rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 ${
-                activePlan === "pro"
-                  ? "bg-indigo-100 hover:bg-indigo-200 text-indigo-900"
-                  : "bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white shadow-xs"
-              }`}
-            >
-              <Crown className="w-3.5 h-3.5" />
-              <span>
-                {activePlan === "pro"
-                  ? "Muddatni 30 kunga uzaytirish"
-                  : "Pro tarifiga o'tish"}
+                {!isFreePlan
+                  ? "Obunani uzaytirish (+30 kun)"
+                  : "Standart tarifga o'tish"}
               </span>
             </button>
           </div>
         </div>
 
         {/* Support Card */}
-        {paymentSettings?.support_telegram && (
+        {subscriptionSettings?.support_telegram && (
           <div className="p-3.5 bg-white border border-slate-200/80 rounded-2xl flex items-center justify-between shadow-2xs">
             <div className="flex items-center gap-2 text-xs">
               <HelpCircle className="w-4 h-4 text-blue-500 shrink-0" />
@@ -450,12 +426,12 @@ export default function SubscriptionPage() {
                   Savollaringiz bormi?
                 </p>
                 <p className="text-[11px] text-slate-500">
-                  Admin bilan to'g'ridan-to'g'ri bog'laning
+                  Admin bilan to&apos;g&apos;ridan-to&apos;g&apos;ri bog&apos;laning
                 </p>
               </div>
             </div>
             <a
-              href={`https://t.me/${paymentSettings.support_telegram.replace("@", "")}`}
+              href={`https://t.me/${subscriptionSettings.support_telegram.replace("@", "")}`}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-1 px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-xl text-xs font-semibold transition"
@@ -468,13 +444,13 @@ export default function SubscriptionPage() {
       </main>
 
       {/* Subscription Payment Drawer/Modal */}
-      {selectedPlan && (
+      {paymentModalOpen && (
         <SubscriptionPaymentModal
-          planType={selectedPlan.type}
-          planName={selectedPlan.name}
-          planPrice={selectedPlan.price}
-          paymentSettings={paymentSettings}
-          onClose={() => setSelectedPlan(null)}
+          planType="standard"
+          planName="Standart"
+          planPrice={standartPrice}
+          paymentSettings={subscriptionSettings}
+          onClose={() => setPaymentModalOpen(false)}
           onSuccess={handlePaymentSuccess}
         />
       )}

@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 
-from .models import PaymentSettings, SubscriptionRequest, User, UserSetting
+from .models import PaymentSettings, SubscriptionRequest, SubscriptionSettings, User, UserSetting
 
 
 @admin.register(User)
@@ -17,12 +17,13 @@ class UserAdmin(BaseUserAdmin):
         "phone",
         "telegram_id",
         "plan",
+        "is_frozen",
         "cars_limit",
         "expires_at",
         "is_subscription_active",
         "is_active",
     )
-    list_filter = ("role", "is_registered", "plan", "is_active", "is_staff", "is_superuser")
+    list_filter = ("role", "is_registered", "plan", "is_frozen", "is_active", "is_staff", "is_superuser")
     search_fields = ("username", "full_name", "phone", "tenant_code", "telegram_id", "email")
     ordering = ("-id",)
     raw_id_fields = ("parent_owner",)
@@ -48,7 +49,7 @@ class UserAdmin(BaseUserAdmin):
         ),
         (
             "Carenda SaaS Subscription",
-            {"fields": ("plan", "cars_limit", "expires_at")},
+            {"fields": ("plan", "is_frozen", "cars_limit", "trial_ends_at", "subscription_expires_at", "expires_at")},
         ),
         (
             "Permissions",
@@ -73,12 +74,13 @@ class UserSettingAdmin(admin.ModelAdmin):
     raw_id_fields = ("owner",)
 
 
-@admin.register(PaymentSettings)
-class PaymentSettingsAdmin(admin.ModelAdmin):
+@admin.register(SubscriptionSettings)
+class SubscriptionSettingsAdmin(admin.ModelAdmin):
     list_display = (
         "id",
-        "standard_plan_price",
-        "pro_plan_price",
+        "standart_price",
+        "free_max_contracts",
+        "free_duration_days",
         "paynet_url",
         "card_number",
         "card_holder",
@@ -86,6 +88,23 @@ class PaymentSettingsAdmin(admin.ModelAdmin):
         "updated_at",
     )
     fieldsets = (
+        (
+            "Free (Sinov) tarif sozlamalari",
+            {
+                "fields": (
+                    "free_max_contracts",
+                    "free_duration_days",
+                )
+            },
+        ),
+        (
+            "Standart (Pullik) tarif sozlamalari",
+            {
+                "fields": (
+                    "standart_price",
+                )
+            },
+        ),
         (
             "Paynet Sozlamalari",
             {
@@ -96,7 +115,7 @@ class PaymentSettingsAdmin(admin.ModelAdmin):
             },
         ),
         (
-            "Plastik Karta Sozlamalari",
+            "Plastik Karta Sozlamalari (Muqobil)",
             {
                 "fields": (
                     "card_number",
@@ -105,11 +124,9 @@ class PaymentSettingsAdmin(admin.ModelAdmin):
             },
         ),
         (
-            "Tarif Narxlari va Qo'llab-quvvatlash",
+            "Qo'llab-quvvatlash",
             {
                 "fields": (
-                    "standard_plan_price",
-                    "pro_plan_price",
                     "support_telegram",
                 )
             },
@@ -117,7 +134,7 @@ class PaymentSettingsAdmin(admin.ModelAdmin):
     )
 
     def has_add_permission(self, request):
-        return not PaymentSettings.objects.exists()
+        return not SubscriptionSettings.objects.exists()
 
     def has_delete_permission(self, request, obj=None):
         return False

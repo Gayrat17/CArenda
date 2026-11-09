@@ -415,3 +415,112 @@ class SubscriptionFlowTests(TestCase):
         sub_req.refresh_from_db()
         self.assertEqual(sub_req.status, SubscriptionRequest.Status.REJECTED)
         self.assertIn("Rad etdi", sub_req.admin_note)
+
+    def test_two_tier_free_limits_and_403_contract_creation(self):
+        from decimal import Decimal
+        from apps.fleet.models import Car, Contract, Driver
+
+        # Newly registered owner defaults to Free tier with 60 days duration and limit 3
+        new_user = User.objects.create_user(
+            username="new_free_owner",
+            role=User.RoleChoices.ARENDATOR,
+        )
+        self.assertEqual(new_user.plan, "free")
+        self.assertIsNotNone(new_user.trial_ends_at)
+        self.assertEqual(new_user.cars_limit, 3)
+
+        self.owner.plan = "free"
+        self.owner.cars_limit = 3
+        self.owner.save()
+
+        driver = Driver.objects.create(
+            owner=self.owner,
+            full_name="Haydovchi Sinov",
+            phone="+998901234567",
+        )
+
+        # Create 3 contracts (allowed)
+        for i in range(1, 4):
+            car = Car.objects.create(
+                owner=self.owner,
+                name=f"Mashina {i}",
+                plate_number=f"01A00{i}AA",
+                status=Car.Status.AVAILABLE,
+            )
+            res = self.client_owner.post(
+                "/api/v1/contracts/",
+                {
+                    "car_id": car.id,
+                    "driver_id": driver.id,
+                    "car_price": "10000.00",
+                    "initial_payment": "1000.00",
+                    "months_count": 12,
+                    "payment_day": 5,
+                    "start_date": "2026-03-01",
+                },
+                format="json",
+            )
+            self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+
+        # 4th contract must be blocked with 403 Forbidden
+        car4 = Car.objects.create(
+            owner=self.owner,
+            name="Mashina 4",
+            plate_number="01A004AA",
+            status=Car.Status.AVAILABLE,
+        )
+        res4 = self.client_owner.post(
+            "/api/v1/contracts/",
+            {
+                "car_id": car4.id,
+                "driver_id": driver.id,
+                "car_price": "10000.00",
+                "initial_payment": "1000.00",
+                "months_count": 12,
+                "payment_day": 5,
+                "start_date": "2026-03-01",
+            },
+            format="json",
+        )
+        self.assertEqual(res4.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res4.json().get("code"), "subscription_limit_reached")
+        self.assertIn("Free tarif limiti tugadi", res4.json().get("detail", ""))
+
+    def test_account_freezing_blocks_contract_creation(self):
+        self.owner.is_frozen = True
+        self.owner.save()
+
+        res = self.client_owner.post(
+            "/api/v1/contracts/",
+            {
+                "car_name": "Spark",
+                "plate_number": "01F777FF",
+                "driver_full_name": "Test Driver",
+                "driver_phone": "+998901112233",
+                "car_price": "10000.00",
+                "months_count": 12,
+                "payment_day": 5,
+                "start_date": "2026-03-01",
+            },
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("muzlatilgan", res.json().get("detail", ""))
+
+    def test_subscription_settings_and_status_endpoints(self):
+        # GET /api/subscriptions/settings/
+        res_settings = self.client_owner.get("/api/v1/subscriptions/settings/")
+        self.assertEqual(res_settings.status_code, status.HTTP_200_OK)
+        s_data = res_settings.json()
+        self.assertIn("standart_price", s_data)
+        self.assertIn("free_max_contracts", s_data)
+        self.assertEqual(s_data["free_max_contracts"], 3)
+
+        # GET /api/subscriptions/status/
+        res_status = self.client_owner.get("/api/v1/subscriptions/status/")
+        self.assertEqual(res_status.status_code, status.HTTP_200_OK)
+        stat_data = res_status.json()
+        self.assertEqual(stat_data["plan"], "free")
+        self.assertIn("remaining_days", stat_data)
+        self.assertIn("active_contracts_count", stat_data)
+

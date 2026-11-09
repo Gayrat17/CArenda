@@ -512,20 +512,19 @@ export function CarDetailModal({
                             }`}
                           >
                             <div className="space-y-1 min-w-0 flex-1">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className={`font-bold whitespace-nowrap ${isLocked ? "text-slate-600" : "text-slate-900"}`}>
-                                  {p.month_number}-oy
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className={`inline-flex items-center gap-1 font-bold whitespace-nowrap shrink-0 select-none ${isLocked ? "text-slate-600" : "text-slate-900"}`}>
+                                  {isLocked && <Lock className="w-3 h-3 text-amber-600 shrink-0" />}
+                                  <span>{p.month_number}&#8209;oy</span>
                                 </span>
-                                {isLocked ? (
-                                  <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-amber-50 text-amber-700 border border-amber-200/70 whitespace-nowrap flex items-center gap-1">
-                                    <Lock className="w-2.5 h-2.5 shrink-0 text-amber-600" />
+                                <span
+                                  className={`text-[10px] px-2 py-0.5 rounded-full font-semibold whitespace-nowrap shrink-0 ${pInfo.bg} ${pInfo.text}`}
+                                >
+                                  {pInfo.label}
+                                </span>
+                                {isLocked && (
+                                  <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-amber-50 text-amber-700 border border-amber-200/70 whitespace-nowrap flex items-center gap-1 shrink-0">
                                     Oldingi oy to&apos;lanmagan
-                                  </span>
-                                ) : (
-                                  <span
-                                    className={`text-[10px] px-2 py-0.5 rounded-full font-semibold whitespace-nowrap ${pInfo.bg} ${pInfo.text}`}
-                                  >
-                                    {pInfo.label}
                                   </span>
                                 )}
                               </div>

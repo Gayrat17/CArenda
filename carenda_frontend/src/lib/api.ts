@@ -542,6 +542,10 @@ export async function getUserSchedule(options?: { forceRefresh?: boolean }): Pro
 export const getClientContracts = getUserSchedule;
 
 // Subscription & Payment Settings APIs
+export async function getSubscriptionSettings(options?: { forceRefresh?: boolean }): Promise<import("@/types/subscription").SubscriptionSettings> {
+  return apiFetch<import("@/types/subscription").SubscriptionSettings>("/subscriptions/settings/", options);
+}
+
 export async function getPaymentSettings(options?: { forceRefresh?: boolean }): Promise<import("@/types/subscription").PaymentSettings> {
   return apiFetch<import("@/types/subscription").PaymentSettings>("/subscriptions/payment-settings/", options);
 }
@@ -559,20 +563,25 @@ export async function updatePaymentSettings(
 }
 
 export async function createSubscriptionRequest(payload: {
-  plan_type: "standard" | "pro";
+  plan_type?: "standard" | "pro" | string;
   amount?: number;
   note?: string;
 }): Promise<import("@/types/subscription").SubscriptionRequest> {
   const result = await apiFetch<import("@/types/subscription").SubscriptionRequest>("/subscriptions/request/", {
     method: "POST",
-    body: JSON.stringify(payload),
+    body: JSON.stringify({
+      plan_type: payload.plan_type || "standard",
+      ...payload,
+    }),
   });
   clearApiCache();
   return result;
 }
 
 export async function getMySubscriptionStatus(options?: { forceRefresh?: boolean }): Promise<import("@/types/subscription").SubscriptionStatusResponse> {
-  return apiFetch<import("@/types/subscription").SubscriptionStatusResponse>("/subscriptions/my-status/", options);
+  return apiFetch<import("@/types/subscription").SubscriptionStatusResponse>("/subscriptions/status/", options);
 }
+
+export const getSubscriptionStatus = getMySubscriptionStatus;
 
 

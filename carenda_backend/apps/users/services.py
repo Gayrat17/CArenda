@@ -31,14 +31,20 @@ def process_subscription_approval(
     sub_request.save(update_fields=["status", "reviewed_at", "admin_note"])
 
     user = sub_request.user
-    target_plan = sub_request.plan_type
-    user.plan = target_plan
-    user.cars_limit = 15 if target_plan == "standard" else 9999
+    user.plan = sub_request.plan_type if sub_request.plan_type in ("pro", "standard") else "standard"
+    user.cars_limit = 9999
+    user.is_frozen = False
 
     now = timezone.now()
-    base_time = user.expires_at if (user.expires_at and user.expires_at > now) else now
-    user.expires_at = base_time + timedelta(days=30)
-    user.save(update_fields=["plan", "cars_limit", "expires_at"])
+    base_time = (
+        user.subscription_expires_at
+        if (user.subscription_expires_at and user.subscription_expires_at > now)
+        else (user.expires_at if (user.expires_at and user.expires_at > now) else now)
+    )
+    new_expires = base_time + timedelta(days=30)
+    user.subscription_expires_at = new_expires
+    user.expires_at = new_expires
+    user.save(update_fields=["plan", "cars_limit", "is_frozen", "subscription_expires_at", "expires_at"])
 
     invalidate_tenant_cache(user.id, user.telegram_id)
 

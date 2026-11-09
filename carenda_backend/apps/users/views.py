@@ -10,12 +10,14 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.fleet.services import invalidate_tenant_cache
-from apps.users.models import PaymentSettings, SubscriptionRequest, User, UserSetting
+from apps.users.models import PaymentSettings, SubscriptionRequest, SubscriptionSettings, User, UserSetting
 from apps.users.serializers import (
     PaymentSettingsSerializer,
     PaymentSettingsUpdateSerializer,
     SubscriptionRequestCreateSerializer,
     SubscriptionRequestSerializer,
+    SubscriptionSettingsSerializer,
+    SubscriptionSettingsUpdateSerializer,
     UserMeSerializer,
     UserMeUpdateSerializer,
 )
@@ -108,7 +110,7 @@ def notify_admins_of_subscription_request(sub_request: SubscriptionRequest) -> b
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="✅ Tasdiqlash (30 kun)",
+                    text="✅ Tasdiqlash (+30 kun)",
                     callback_data=f"sub_approve:{sub_request.id}",
                 ),
                 InlineKeyboardButton(
@@ -180,6 +182,9 @@ class PaymentSettingsAPIView(APIView):
         return self.patch(request)
 
 
+SubscriptionSettingsAPIView = PaymentSettingsAPIView
+
+
 class SubscriptionRequestAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -191,14 +196,10 @@ class SubscriptionRequestAPIView(APIView):
     def post(self, request):
         user = request.user
         plan_type = request.data.get("plan_type", "standard").lower().strip()
-        if plan_type in ("basic", "sinov"):
+        if plan_type not in ("standard", "pro", "standart"):
             plan_type = "standard"
-
-        if plan_type not in ("standard", "pro"):
-            return Response(
-                {"detail": "Noto'g'ri tarif turi tanlandi. Mavjud tariflar: standard, pro."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        if plan_type == "standart":
+            plan_type = "standard"
 
         # Check existing pending request
         pending = SubscriptionRequest.objects.filter(user=user, status="pending").first()
@@ -211,7 +212,7 @@ class SubscriptionRequestAPIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        settings_obj = PaymentSettings.get_settings()
+        settings_obj = SubscriptionSettings.get_settings()
         amount = request.data.get("amount")
         try:
             amount = int(amount) if amount else None
@@ -219,7 +220,7 @@ class SubscriptionRequestAPIView(APIView):
             amount = None
 
         if not amount or amount <= 0:
-            amount = settings_obj.pro_plan_price if plan_type == "pro" else settings_obj.standard_plan_price
+            amount = settings_obj.standart_price
 
         note = str(request.data.get("note") or "").strip()
 
@@ -242,22 +243,49 @@ class SubscriptionStatusAPIView(APIView):
 
     def get(self, request):
         owner = request.user.tenant_owner
+        settings_obj = SubscriptionSettings.get_settings()
         pending = SubscriptionRequest.objects.filter(user=owner, status="pending").first()
 
-        plan_label = owner.get_plan_display() if hasattr(owner, "get_plan_display") else owner.plan
-        if owner.plan in ("standard", "basic"):
+        plan_code = (owner.plan or "free").lower()
+        if plan_code in ("standard", "basic", "pro"):
+            plan_code = "standard"
             plan_label = "Standart"
-        elif owner.plan == "pro":
-            plan_label = "Pro (Premium)"
-        elif owner.plan == "trial":
-            plan_label = "Sinov (Trial)"
+        else:
+            plan_code = "free"
+            plan_label = "Free (Sinov)"
+
+        now = timezone.now()
+        target_expiry = (
+            owner.subscription_expires_at
+            if plan_code == "standard"
+            else (owner.trial_ends_at or (owner.date_joined + timedelta(days=settings_obj.free_duration_days)))
+        )
+        remaining_days = (
+            max(0, (target_expiry - now).days)
+            if (target_expiry and owner.is_subscription_active and not owner.is_frozen)
+            else 0
+        )
+
+        active_contracts_count = owner.contracts.filter(is_active=True).count()
+        can_create, cannot_reason = owner.check_can_create_contract()
 
         return Response({
-            "plan": owner.plan,
+            "plan": plan_code,
             "plan_label": plan_label,
             "is_active": owner.is_subscription_active,
-            "expires_at": owner.expires_at,
+            "is_frozen": owner.is_frozen,
+            "trial_ends_at": owner.trial_ends_at,
+            "subscription_expires_at": owner.subscription_expires_at,
+            "expires_at": target_expiry,
+            "remaining_days": remaining_days,
+            "contracts_count": active_contracts_count,
+            "active_contracts_count": active_contracts_count,
+            "max_contracts": settings_obj.free_max_contracts if plan_code == "free" else 9999,
+            "can_create_contract": can_create,
+            "cannot_create_reason": cannot_reason,
+            "standart_price": settings_obj.standart_price,
             "cars_count": owner.cars.count(),
             "cars_limit": owner.cars_limit,
+            "settings": SubscriptionSettingsSerializer(settings_obj, context={"request": request}).data,
             "pending_request": SubscriptionRequestSerializer(pending).data if pending else None,
         })

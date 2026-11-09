@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   FileText,
   Calculator,
@@ -10,6 +11,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Plus,
+  Zap,
 } from "lucide-react";
 import { CarListItem, Driver, User as UserType, CreateContractPayload } from "@/types/fleet";
 import { createContract } from "@/lib/api";
@@ -42,7 +44,39 @@ export function ContractTab({
   onSuccess,
   onNavigateCars,
 }: ContractTabProps) {
+  const router = useRouter();
   const availableCars = cars.filter((c) => c.status === "available");
+
+  // Subscription Limit Protection
+  const [showLimitModal, setShowLimitModal] = useState(false);
+  const [limitModalReason, setLimitModalReason] = useState("");
+
+  const isFreePlan = (user?.plan || "free").toLowerCase() === "free" || (user?.plan || "free").toLowerCase() === "trial";
+  const activeContractsCount = cars.filter((c) => Boolean(c.active_contract_summary)).length;
+  const isLimitHit =
+    (isFreePlan && activeContractsCount >= 3) ||
+    user?.can_add_car === false ||
+    user?.is_frozen ||
+    user?.is_subscription_active === false;
+
+  useEffect(() => {
+    if (isLimitHit) {
+      if (user?.is_frozen) {
+        setLimitModalReason(
+          "Hisobingiz muzlatilgan. Iltimos, administrator bilan bog'laning yoki to'lovni amalga oshiring."
+        );
+      } else if (user?.is_subscription_active === false) {
+        setLimitModalReason(
+          "Obuna muddatingiz tugagan. Yangi shartnoma tuzish uchun Standart tarifga o'ting."
+        );
+      } else if (isFreePlan && activeContractsCount >= 3) {
+        setLimitModalReason(
+          "Free tarif limiti tugadi (maksimum 3 ta shartnoma yoki 2 oylik muddat). Davom etish uchun Standart tarifga o'ting."
+        );
+      }
+      setShowLimitModal(true);
+    }
+  }, [isLimitHit, isFreePlan, activeContractsCount, user?.is_frozen, user?.is_subscription_active]);
 
   // Form State: Car Details
   const [carId, setCarId] = useState<number | "">(
@@ -223,7 +257,18 @@ export function ContractTab({
       const contract = await createContract(payload);
       onSuccess(contract.car || (carId ? Number(carId) : 0));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Shartnoma tuzishda xatolik yuz berdi.");
+      const msg = err instanceof Error ? err.message : "Shartnoma tuzishda xatolik yuz berdi.";
+      setError(msg);
+      if (
+        msg.includes("Free tarif limiti") ||
+        msg.includes("muzlatilgan") ||
+        msg.includes("Obuna muddati") ||
+        msg.includes("Standart tarifga o'ting") ||
+        msg.includes("subscription_limit_reached")
+      ) {
+        setLimitModalReason(msg);
+        setShowLimitModal(true);
+      }
     } finally {
       setLoading(false);
     }
@@ -737,6 +782,47 @@ export function ContractTab({
           {loading ? "Shartnoma tuzilmoqda..." : "Shartnomani tasdiqlash va tuzish"}
         </button>
       </form>
+
+      {/* Subscription Limit Modal */}
+      {showLimitModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl p-5 max-w-sm w-full space-y-4 shadow-2xl text-center animate-in zoom-in-95 duration-200">
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center border border-amber-200/70 shadow-xs">
+              <Zap className="w-7 h-7" />
+            </div>
+            <div className="space-y-1.5">
+              <h3 className="font-bold text-base text-slate-900">
+                Tarif Limiti Yetib Keldi
+              </h3>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                {limitModalReason ||
+                  "Free tarif limiti tugadi (maksimum 3 ta shartnoma yoki 2 oylik muddat). Davom etish uchun Standart tarifga o'ting."}
+              </p>
+            </div>
+
+            <div className="space-y-2 pt-2">
+              <button
+                type="button"
+                onClick={() => router.push("/subscription")}
+                className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Zap className="w-4 h-4 text-amber-300" />
+                <span>Standart tarifga o&apos;tish</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowLimitModal(false);
+                  onNavigateCars();
+                }}
+                className="w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition cursor-pointer"
+              >
+                Orqaga qaytish
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

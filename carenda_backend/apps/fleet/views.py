@@ -429,6 +429,13 @@ class CarListCreateAPIView(APIView):
 
     def post(self, request):
         owner = request.user.tenant_owner
+        can_create, err = owner.check_can_create_contract()
+        if not can_create:
+            return Response(
+                {"detail": err, "code": "subscription_limit_reached"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         serializer = CarCreateUpdateSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -584,6 +591,13 @@ class ContractListCreateAPIView(APIView):
 
     def post(self, request):
         owner = request.user.tenant_owner
+        can_create, err = owner.check_can_create_contract()
+        if not can_create:
+            return Response(
+                {"detail": err, "code": "subscription_limit_reached"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         serializer = ContractCreateSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

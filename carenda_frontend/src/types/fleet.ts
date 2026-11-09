@@ -1,4 +1,4 @@
-export type UserPlan = "trial" | "basic" | "pro";
+export type UserPlan = "free" | "standard" | "trial" | "basic" | "pro";
 export type UserRole = "superadmin" | "arendator" | "owner" | "user";
 
 export interface User {
@@ -17,6 +17,10 @@ export interface User {
   cars_limit: number;
   cars_count: number;
   expires_at: string;
+  trial_ends_at?: string | null;
+  subscription_expires_at?: string | null;
+  is_frozen?: boolean;
+  remaining_days?: number;
   is_subscription_active: boolean;
   can_add_car: boolean;
   default_annual_percent: string;

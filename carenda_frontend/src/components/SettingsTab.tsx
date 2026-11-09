@@ -229,19 +229,21 @@ export function SettingsTab({ user, onRefreshUser }: SettingsTabProps) {
                 Obuna holati
               </p>
               <h3 className="font-bold text-base capitalize">
-                Tarif: {user?.plan || "Trial"}
+                Tarif: {(user?.plan || "free").toLowerCase() === "standard" ? "Standart" : "Free (Sinov)"}
               </h3>
             </div>
           </div>
           <div className="flex flex-col items-end gap-1">
             <span
               className={`px-2.5 py-1 text-xs font-semibold rounded-full ${
-                user?.is_subscription_active
+                user?.is_frozen
+                  ? "bg-rose-500/20 text-rose-300 border border-rose-500/30"
+                  : user?.is_subscription_active
                   ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-                  : "bg-rose-500/20 text-rose-300 border border-rose-500/30"
+                  : "bg-amber-500/20 text-amber-300 border border-amber-500/30"
               }`}
             >
-              {user?.is_subscription_active ? "Faol" : "Muddati tugagan"}
+              {user?.is_frozen ? "Muzlatilgan" : user?.is_subscription_active ? "Faol" : "Muddati tugagan"}
             </span>
             <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-white/10 text-indigo-200">
               {user?.role === "superadmin" ? "Super Admin" : "Arendator (Egasi)"}
@@ -251,9 +253,11 @@ export function SettingsTab({ user, onRefreshUser }: SettingsTabProps) {
 
         <div className="grid grid-cols-2 gap-2 pt-2 border-t border-white/10 text-xs">
           <div>
-            <p className="text-[10px] text-slate-400">Mashinalar limiti:</p>
+            <p className="text-[10px] text-slate-400">Shartnomalar limiti:</p>
             <p className="font-bold text-white mt-0.5">
-              {user?.cars_count || 0} / {user?.cars_limit || 0} ta
+              {(user?.plan || "free").toLowerCase() === "standard"
+                ? `${user?.cars_count || 0} ta (Cheksiz)`
+                : `${user?.cars_count || 0} / 3 ta`}
             </p>
           </div>
           <div>

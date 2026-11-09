@@ -93,6 +93,10 @@ def create_car_service(
     if not owner.is_subscription_active:
         raise ValidationError("Obuna muddatingiz tugagan.")
 
+    can_create, err = owner.check_can_create_contract()
+    if not can_create:
+        raise ValidationError(err)
+
     if owner.cars.count() >= owner.cars_limit:
         raise ValidationError("Tarif bo'yicha mashinalar limiti to'lgan.")
 
@@ -133,6 +137,10 @@ def create_contract_service(
     creates the contract, sets car status to 'rented', and schedules monthly payments safely.
     Supports either passing an existing available car or inline car_name and plate_number.
     """
+    can_create, err = owner.check_can_create_contract()
+    if not can_create:
+        raise ValidationError(err)
+
     if car is None:
         if not car_name or not car_name.strip():
             raise ValidationError("Mashina nomi kiritilishi shart.")

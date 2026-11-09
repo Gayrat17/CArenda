@@ -9,7 +9,7 @@ from django.utils import timezone
 
 
 def get_default_expires_at():
-    return timezone.now() + timedelta(days=14)
+    return timezone.now() + timedelta(days=60)
 
 
 def generate_unique_tenant_code() -> str:
@@ -23,10 +23,12 @@ def generate_unique_tenant_code() -> str:
 
 class User(AbstractUser):
     class Plan(models.TextChoices):
-        TRIAL = "trial", "Sinov (Trial)"
+        FREE = "free", "Free"
         STANDARD = "standard", "Standart"
+        # Backward compatibility aliases
+        TRIAL = "trial", "Free"
         BASIC = "basic", "Standart"
-        PRO = "pro", "Pro"
+        PRO = "pro", "Standart"
 
     class RoleChoices(models.TextChoices):
         SUPERADMIN = "superadmin", "Super Admin"
@@ -64,6 +66,11 @@ class User(AbstractUser):
         verbose_name="Ro'yxatdan o'tgan",
         help_text="True only after phone verification in Telegram Bot",
     )
+    is_frozen = models.BooleanField(
+        default=False,
+        verbose_name="Muzlatilgan (Frozen)",
+        help_text="Superadmin tomonidan muzlatilgan yoki to'lov qilinmagan",
+    )
     telegram_id = models.BigIntegerField(
         unique=True,
         null=True,
@@ -84,12 +91,22 @@ class User(AbstractUser):
     plan = models.CharField(
         max_length=20,
         choices=Plan.choices,
-        default=Plan.TRIAL,
+        default=Plan.FREE,
         verbose_name="Subscription Plan",
     )
     cars_limit = models.PositiveIntegerField(
-        default=2,
+        default=3,
         verbose_name="Cars Limit",
+    )
+    trial_ends_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Free Trial Ends At",
+    )
+    subscription_expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Paid Subscription Expires At",
     )
     expires_at = models.DateTimeField(
         default=get_default_expires_at,
@@ -117,6 +134,23 @@ class User(AbstractUser):
                     break
         elif self.role != self.RoleChoices.ARENDATOR and self.tenant_code:
             self.tenant_code = None
+
+        # Free tier trial period calculation (60 days)
+        if not self.trial_ends_at:
+            base_date = self.date_joined if self.date_joined else timezone.now()
+            self.trial_ends_at = base_date + timedelta(days=60)
+
+        # Do not overwrite self.expires_at if already set
+        if not self.expires_at:
+            if self.plan in (self.Plan.STANDARD, self.Plan.BASIC, self.Plan.PRO) and self.subscription_expires_at:
+                self.expires_at = self.subscription_expires_at
+            else:
+                self.expires_at = self.subscription_expires_at or self.trial_ends_at
+
+        if self.expires_at and self.trial_ends_at and self.expires_at < self.trial_ends_at:
+            if (self.plan or "free").lower() in ("free", "trial"):
+                self.trial_ends_at = self.expires_at
+
         super().save(*args, **kwargs)
 
     @property
@@ -149,19 +183,67 @@ class User(AbstractUser):
     @property
     def is_subscription_active(self) -> bool:
         owner = self.tenant_owner
-        return bool(
-            owner.is_active
-            and owner.expires_at
-            and owner.expires_at > timezone.now()
-        )
+        if owner.is_frozen or not owner.is_active:
+            return False
+        now = timezone.now()
+        if not owner.expires_at or owner.expires_at < now:
+            return False
+        if owner.trial_ends_at and now > owner.trial_ends_at:
+            return False
+        if owner.subscription_expires_at and now > owner.subscription_expires_at:
+            return False
+        return True
+
+    def check_can_create_contract(self) -> tuple[bool, str]:
+        owner = self.tenant_owner
+        now = timezone.now()
+        sub_settings = SubscriptionSettings.get_settings()
+
+        if owner.is_frozen:
+            return False, "Hisobingiz muzlatilgan. Iltimos, administrator bilan bog'laning yoki to'lovni amalga oshiring."
+
+        if not owner.is_subscription_active:
+            p = (owner.plan or "free").lower()
+            if p in ("free", "trial"):
+                return (
+                    False,
+                    "Free tarif limiti tugadi (maksimum 3 ta shartnoma yoki 2 oylik muddat). Davom etish uchun Standart tarifga o'ting.",
+                )
+            return False, "Standart tarif obuna muddati tugagan. Davom etish uchun Standart tarifga o'ting."
+
+        p = (owner.plan or "free").lower()
+        if p in ("free", "trial"):
+            trial_end = owner.trial_ends_at or owner.expires_at
+            if trial_end and now > trial_end:
+                return (
+                    False,
+                    "Free tarif limiti tugadi (maksimum 3 ta shartnoma yoki 2 oylik muddat). Davom etish uchun Standart tarifga o'ting.",
+                )
+
+            active_contracts = owner.contracts.filter(is_active=True).count()
+            if active_contracts >= sub_settings.free_max_contracts:
+                return (
+                    False,
+                    f"Free tarif limiti tugadi (maksimum {sub_settings.free_max_contracts} ta shartnoma yoki 2 oylik muddat). Davom etish uchun Standart tarifga o'ting.",
+                )
+            return True, ""
+
+        # Standart / Paid tier
+        exp = owner.subscription_expires_at or owner.expires_at
+        if not exp or now > exp:
+            return False, "Standart tarif obuna muddati tugagan. Davom etish uchun Standart tarifga o'ting."
+
+        return True, ""
 
     @property
     def can_add_car(self) -> bool:
         owner = self.tenant_owner
-        return bool(
-            owner.is_subscription_active
-            and (owner.cars.count() < owner.cars_limit)
-        )
+        if not owner.is_subscription_active:
+            return False
+        if owner.cars.count() >= owner.cars_limit:
+            return False
+        can_create, _ = owner.check_can_create_contract()
+        return can_create
 
     def __str__(self):
         role_label = self.get_role_display() if hasattr(self, "get_role_display") else self.role
@@ -191,7 +273,19 @@ class UserSetting(models.Model):
         return f"Settings for {self.owner}"
 
 
-class PaymentSettings(models.Model):
+class SubscriptionSettings(models.Model):
+    standart_price = models.PositiveIntegerField(
+        default=150000,
+        verbose_name="Standart tarif narxi (UZS / oy)",
+    )
+    free_max_contracts = models.PositiveIntegerField(
+        default=3,
+        verbose_name="Free tarif maksimal shartnomalar soni",
+    )
+    free_duration_days = models.PositiveIntegerField(
+        default=60,
+        verbose_name="Free tarif muddati (kun)",
+    )
     paynet_url = models.URLField(
         max_length=500,
         blank=True,
@@ -222,19 +316,23 @@ class PaymentSettings(models.Model):
         default="",
         verbose_name="Qo'llab-quvvatlash Telegrami (@username)",
     )
-    standard_plan_price = models.PositiveIntegerField(
-        default=120000,
-        verbose_name="Standart tarif narxi (UZS / oy)",
-    )
-    pro_plan_price = models.PositiveIntegerField(
-        default=250000,
-        verbose_name="Pro tarif narxi (UZS / oy)",
-    )
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Oxirgi tahrir")
 
     class Meta:
-        verbose_name = "To'lov sozlamalari (Paynet / Karta)"
-        verbose_name_plural = "To'lov sozlamalari"
+        verbose_name = "Obuna va To'lov sozlamalari (Superadmin)"
+        verbose_name_plural = "Obuna va To'lov sozlamalari"
+
+    @property
+    def standard_plan_price(self):
+        return self.standart_price
+
+    @standard_plan_price.setter
+    def standard_plan_price(self, val):
+        self.standart_price = val
+
+    @property
+    def pro_plan_price(self):
+        return self.standart_price
 
     @classmethod
     def get_settings(cls):
@@ -248,7 +346,10 @@ class PaymentSettings(models.Model):
         return instance
 
     def __str__(self):
-        return "To'lov Sozlamalari (Yagona konfiguratsiya)"
+        return "Obuna va To'lov sozlamalari (Yagona konfiguratsiya)"
+
+
+PaymentSettings = SubscriptionSettings
 
 
 class SubscriptionRequest(models.Model):
