@@ -211,16 +211,45 @@ export interface OverduePaymentItem {
   is_postponed?: boolean;
 }
 
+export interface UpcomingPaymentItem {
+  id: number;
+  contract_id: number;
+  month_number?: number;
+  car_name: string;
+  plate_number: string;
+  driver_name: string;
+  driver_phone: string;
+  due_date: string;
+  expected_amount: string;
+  paid_amount: string;
+  remaining_amount: string;
+  days_until_due: number;
+  comment?: string;
+  can_pay?: boolean;
+  is_postponed?: boolean;
+}
+
 export interface DashboardResponse {
   total_cars: number;
   available_cars: number;
   rented_cars: number;
   maintenance_cars: number;
   active_contracts_count: number;
+  completed_contracts_count?: number;
+  total_contracts_count?: number;
   total_expected_usd: string;
   total_collected_usd: string;
   total_remaining_usd: string;
+  this_month_expected_usd?: string;
+  this_month_collected_usd?: string;
+  this_month_remaining_usd?: string;
+  this_month_collection_rate?: number;
+  overdue_count?: number;
+  total_overdue_usd?: string;
   overdue_payments: OverduePaymentItem[];
+  upcoming_count?: number;
+  total_upcoming_usd?: string;
+  upcoming_payments?: UpcomingPaymentItem[];
 }
 
 export interface CalculatePayload {

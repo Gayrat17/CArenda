@@ -8,6 +8,7 @@ import {
   DashboardResponse,
   Driver,
   OverduePaymentItem,
+  UpcomingPaymentItem,
   Payment,
   User,
   UserScheduleContract,
@@ -159,7 +160,7 @@ export function CarendaApp() {
   }, [loadData]);
 
   // Handlers for payments
-  const handleOpenOverduePayment = (item: OverduePaymentItem) => {
+  const handleOpenOverduePayment = (item: OverduePaymentItem | UpcomingPaymentItem) => {
     setActivePaymentTarget({
       id: item.id,
       month_number: item.month_number,

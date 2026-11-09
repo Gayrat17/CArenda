@@ -1,4 +1,6 @@
+import calendar
 import re
+from datetime import date, timedelta
 from decimal import Decimal
 
 from django.conf import settings
@@ -76,8 +78,17 @@ def get_dashboard_data_for_owner(owner, today=None):
     rented_cars = car_stats["rented"] or 0
     maintenance_cars = car_stats["maintenance"] or 0
 
-    active_contracts_count = Contract.objects.filter(owner=owner, is_active=True).count()
+    # Contract stats
+    contract_stats = Contract.objects.filter(owner=owner).aggregate(
+        total=Count("id"),
+        active=Count("id", filter=Q(is_active=True)),
+        completed=Count("id", filter=Q(is_active=False)),
+    )
+    total_contracts_count = contract_stats["total"] or 0
+    active_contracts_count = contract_stats["active"] or 0
+    completed_contracts_count = contract_stats["completed"] or 0
 
+    # Financial totals across active contracts
     active_payments = Payment.objects.filter(
         contract__owner=owner, contract__is_active=True
     )
@@ -90,9 +101,35 @@ def get_dashboard_data_for_owner(owner, today=None):
         Decimal("0.00"), total_expected_usd - total_collected_usd
     )
 
+    # Current Calendar Month stats (start of month to end of month)
+    start_of_month = date(today.year, today.month, 1)
+    last_day = calendar.monthrange(today.year, today.month)[1]
+    end_of_month = date(today.year, today.month, last_day)
+
+    month_payments = active_payments.filter(
+        due_date__gte=start_of_month, due_date__lte=end_of_month
+    )
+    month_sums = month_payments.aggregate(
+        expected=Sum("expected_amount"), paid=Sum("paid_amount")
+    )
+    this_month_expected_usd = month_sums["expected"] or Decimal("0.00")
+    this_month_collected_usd = month_sums["paid"] or Decimal("0.00")
+    this_month_remaining_usd = max(
+        Decimal("0.00"), this_month_expected_usd - this_month_collected_usd
+    )
+
+    if this_month_expected_usd > Decimal("0.00"):
+        collection_rate = float(
+            min(Decimal("100.0"), (this_month_collected_usd / this_month_expected_usd) * Decimal("100.0"))
+        )
+    else:
+        collection_rate = 100.0 if this_month_collected_usd > Decimal("0.00") else 0.0
+
+    # Overdue payments (due_date <= today and not fully paid)
     overdue_qs = (
         Payment.objects.filter(
             contract__owner=owner,
+            contract__is_active=True,
             status__in=[Payment.Status.PENDING, Payment.Status.PARTIAL],
             due_date__lte=today,
         )
@@ -100,8 +137,11 @@ def get_dashboard_data_for_owner(owner, today=None):
         .order_by("due_date")
     )
 
+    total_overdue_usd = Decimal("0.00")
     overdue_payments_data = []
     for p in overdue_qs:
+        rem = p.remaining_amount
+        total_overdue_usd += rem
         days_overdue = (today - p.due_date).days
         has_prior_unpaid = Payment.objects.filter(
             contract_id=p.contract_id,
@@ -119,7 +159,7 @@ def get_dashboard_data_for_owner(owner, today=None):
                 "due_date": str(p.due_date),
                 "expected_amount": f"{p.expected_amount:.2f}",
                 "paid_amount": f"{p.paid_amount:.2f}",
-                "remaining_amount": f"{p.remaining_amount:.2f}",
+                "remaining_amount": f"{rem:.2f}",
                 "days_overdue": max(0, days_overdue),
                 "comment": p.comment or "",
                 "can_pay": not has_prior_unpaid,
@@ -127,16 +167,82 @@ def get_dashboard_data_for_owner(owner, today=None):
             }
         )
 
+    # Upcoming payments (due_date > today and due_date <= today + 7 days)
+    next_7_days = today + timedelta(days=7)
+    upcoming_qs = (
+        Payment.objects.filter(
+            contract__owner=owner,
+            contract__is_active=True,
+            status__in=[Payment.Status.PENDING, Payment.Status.PARTIAL],
+            due_date__gt=today,
+            due_date__lte=next_7_days,
+        )
+        .select_related("contract__car", "contract__driver")
+        .order_by("due_date")
+    )
+
+    total_upcoming_usd = Decimal("0.00")
+    upcoming_payments_data = []
+    for p in upcoming_qs:
+        rem = p.remaining_amount
+        total_upcoming_usd += rem
+        days_until_due = (p.due_date - today).days
+        has_prior_unpaid = Payment.objects.filter(
+            contract_id=p.contract_id,
+            month_number__lt=p.month_number,
+        ).exclude(status=Payment.Status.PAID).exists()
+        upcoming_payments_data.append(
+            {
+                "id": p.id,
+                "contract_id": p.contract_id,
+                "month_number": p.month_number,
+                "car_name": p.contract.car.name,
+                "plate_number": p.contract.car.plate_number,
+                "driver_name": p.contract.driver.full_name,
+                "driver_phone": p.contract.driver.phone,
+                "due_date": str(p.due_date),
+                "expected_amount": f"{p.expected_amount:.2f}",
+                "paid_amount": f"{p.paid_amount:.2f}",
+                "remaining_amount": f"{rem:.2f}",
+                "days_until_due": days_until_due,
+                "comment": p.comment or "",
+                "can_pay": not has_prior_unpaid,
+                "is_postponed": bool(p.is_postponed or "[1 oyga surildi]" in (p.comment or "")),
+            }
+        )
+
     data = {
+        # Legacy fields for test compatibility
         "total_cars": total_cars,
         "available_cars": available_cars,
         "rented_cars": rented_cars,
         "maintenance_cars": maintenance_cars,
+
+        # Contract KPIs
         "active_contracts_count": active_contracts_count,
+        "completed_contracts_count": completed_contracts_count,
+        "total_contracts_count": total_contracts_count,
+
+        # Portfolio Financials
         "total_expected_usd": f"{total_expected_usd:.2f}",
         "total_collected_usd": f"{total_collected_usd:.2f}",
         "total_remaining_usd": f"{total_remaining_usd:.2f}",
+
+        # Current Month Collection Rate
+        "this_month_expected_usd": f"{this_month_expected_usd:.2f}",
+        "this_month_collected_usd": f"{this_month_collected_usd:.2f}",
+        "this_month_remaining_usd": f"{this_month_remaining_usd:.2f}",
+        "this_month_collection_rate": round(collection_rate, 1),
+
+        # Overdue stats & list
+        "overdue_count": len(overdue_payments_data),
+        "total_overdue_usd": f"{total_overdue_usd:.2f}",
         "overdue_payments": overdue_payments_data,
+
+        # Upcoming stats & list (next 7 days)
+        "upcoming_count": len(upcoming_payments_data),
+        "total_upcoming_usd": f"{total_upcoming_usd:.2f}",
+        "upcoming_payments": upcoming_payments_data,
     }
     cache.set(cache_key, data, 60)
     return data
