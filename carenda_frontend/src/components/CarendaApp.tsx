@@ -200,20 +200,24 @@ export function CarendaApp() {
     [dashboard?.overdue_payments]
   );
 
-  // If still loading or user role not yet determined, render skeleton
-  if (loading || !user) {
-    return <CarendaSkeleton />;
-  }
+  // Redirect in useEffect (never during render phase) to satisfy React Router rules
+  useEffect(() => {
+    if (!user) return;
+    if (!user.is_onboarded) {
+      router.replace("/login");
+    } else if (user.role === "ijarachi" || user.role === "user") {
+      router.replace("/client");
+    }
+  }, [user, router]);
 
-  // Unregistered or not onboarded user check -> strictly redirect to onboarding
-  if (!user.is_onboarded) {
-    router.replace("/login");
-    return <CarendaSkeleton />;
-  }
-
-  // Client (Ijarachi) redirect to isolated Client Portal
-  if (user.role === "ijarachi" || user.role === "user") {
-    router.replace("/client");
+  // Block rendering Arendator UI unless strictly verified as onboarded Arendator
+  if (
+    loading ||
+    !user ||
+    !user.is_onboarded ||
+    user.role === "ijarachi" ||
+    user.role === "user"
+  ) {
     return <CarendaSkeleton />;
   }
 
