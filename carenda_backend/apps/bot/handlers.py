@@ -221,15 +221,17 @@ def register_owner_user(from_user, phone_number: str) -> User:
     if not cleaned_phone.startswith("+"):
         cleaned_phone = f"+{cleaned_phone}"
 
+    from apps.users.authentication import resolve_unique_username
     from apps.users.models import SubscriptionSettings
     sub_settings = SubscriptionSettings.get_settings()
     now = timezone.now()
     trial_end = now + timedelta(days=sub_settings.free_duration_days)
+    safe_username = resolve_unique_username(username, tg_id)
 
     user, created = User.objects.get_or_create(
         telegram_id=tg_id,
         defaults={
-            "username": username,
+            "username": safe_username,
             "full_name": full_name,
             "first_name": first_name,
             "last_name": last_name,
@@ -335,10 +337,13 @@ def match_and_register_user_driver(
     elif not full_name:
         full_name = username
 
+    from apps.users.authentication import resolve_unique_username
+    safe_username = resolve_unique_username(username, tg_id)
+
     user, _ = User.objects.get_or_create(
         telegram_id=tg_id,
         defaults={
-            "username": username,
+            "username": safe_username,
             "full_name": full_name,
             "first_name": first_name,
             "last_name": last_name,

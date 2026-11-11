@@ -721,3 +721,38 @@ class AuthOnboardingRBACFlowTests(TestCase):
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
+    def test_telegram_auth_duplicate_username_collision_safe(self):
+        import urllib.parse
+        import json
+        from django.test import override_settings
+
+        # Existing user already holds username="XushboqovG"
+        User.objects.create_user(
+            username="XushboqovG",
+            telegram_id=13187025601,
+            role=User.RoleChoices.ARENDATOR,
+        )
+
+        # New Telegram user with different telegram_id=1318702560 ALSO has username="XushboqovG"
+        user_payload = json.dumps({
+            "id": 1318702560,
+            "first_name": "G'AYRATJON",
+            "last_name": "",
+            "username": "XushboqovG",
+        })
+        init_data = urllib.parse.urlencode({
+            "user": user_payload,
+            "hash": "fake_dev_hash",
+        })
+
+        client = APIClient()
+        with override_settings(DEBUG=True):
+            res = client.get(
+                "/api/v1/bootstrap/",
+                HTTP_AUTHORIZATION=f"tma {init_data}",
+            )
+            self.assertEqual(res.status_code, status.HTTP_200_OK)
+            new_user = User.objects.get(telegram_id=1318702560)
+            self.assertNotEqual(new_user.username, "XushboqovG")
+            self.assertEqual(new_user.username, "XushboqovG_1318702560")
+

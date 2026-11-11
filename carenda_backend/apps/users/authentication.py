@@ -2,15 +2,28 @@ import hashlib
 import hmac
 import json
 import urllib.parse
+import uuid
 from datetime import timedelta
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import IntegrityError
 from django.utils import timezone
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
 
 from apps.users.models import User, UserSetting
+
+
+def resolve_unique_username(preferred: str | None, telegram_id: int) -> str:
+    """Returns a username guaranteed not to collide with existing User records."""
+    base = (preferred or "").strip() or f"tg_{telegram_id}"
+    if not User.objects.filter(username=base).exists():
+        return base
+    candidate = f"{base}_{telegram_id}"
+    if not User.objects.filter(username=candidate).exists():
+        return candidate
+    return f"tg_{telegram_id}_{uuid.uuid4().hex[:6]}"
 
 
 class TelegramWebAppAuthentication(BaseAuthentication):
@@ -67,29 +80,36 @@ class TelegramWebAppAuthentication(BaseAuthentication):
             else f"Dev Tenant {dev_tg_id}"
         )
 
-        user, created = User.objects.get_or_create(
-            telegram_id=dev_tg_id,
-            defaults={
-                "username": username,
-                "full_name": full_name,
-                "role": User.RoleChoices.ARENDATOR,
-                "plan": User.Plan.TRIAL,
-                "cars_limit": 10,
-                "is_registered": True,
-                "is_onboarded": True,
-                "phone": "+998901234567",
-                "phone_number": "+998901234567",
-                "expires_at": timezone.now() + timedelta(days=365),
-            },
-        )
+        safe_username = resolve_unique_username(username, dev_tg_id)
+        try:
+            user, created = User.objects.get_or_create(
+                telegram_id=dev_tg_id,
+                defaults={
+                    "username": safe_username,
+                    "full_name": full_name,
+                    "role": User.RoleChoices.ARENDATOR,
+                    "plan": User.Plan.TRIAL,
+                    "cars_limit": 10,
+                    "is_registered": True,
+                    "is_onboarded": True,
+                    "phone": "+998901234567",
+                    "phone_number": "+998901234567",
+                    "expires_at": timezone.now() + timedelta(days=365),
+                },
+            )
+        except IntegrityError:
+            user = User.objects.get(telegram_id=dev_tg_id)
+            created = False
+
         if not created:
             updated = False
             if user.full_name != full_name:
                 user.full_name = full_name
                 updated = True
             if user.username != username:
-                user.username = username
-                updated = True
+                if not User.objects.filter(username=username).exclude(pk=user.pk).exists():
+                    user.username = username
+                    updated = True
             if not user.is_onboarded:
                 user.is_onboarded = True
                 updated = True
@@ -165,20 +185,42 @@ class TelegramWebAppAuthentication(BaseAuthentication):
         sub_settings = SubscriptionSettings.get_settings()
         trial_end = timezone.now() + timedelta(days=sub_settings.free_duration_days)
 
-        user, created = User.objects.get_or_create(
-            telegram_id=telegram_id,
-            defaults={
-                "username": tg_username,
-                "full_name": full_name,
-                "first_name": first_name,
-                "last_name": last_name,
-                "role": User.RoleChoices.ARENDATOR,
-                "plan": User.Plan.FREE,
-                "cars_limit": sub_settings.free_max_contracts,
-                "trial_ends_at": trial_end,
-                "expires_at": trial_end,
-            },
-        )
+        user = User.objects.filter(telegram_id=telegram_id).first()
+        created = False
+        if not user:
+            safe_username = resolve_unique_username(tg_username, telegram_id)
+            try:
+                user, created = User.objects.get_or_create(
+                    telegram_id=telegram_id,
+                    defaults={
+                        "username": safe_username,
+                        "full_name": full_name,
+                        "first_name": first_name,
+                        "last_name": last_name,
+                        "role": User.RoleChoices.ARENDATOR,
+                        "plan": User.Plan.FREE,
+                        "cars_limit": sub_settings.free_max_contracts,
+                        "trial_ends_at": trial_end,
+                        "expires_at": trial_end,
+                    },
+                )
+            except IntegrityError:
+                user = User.objects.filter(telegram_id=telegram_id).first()
+                if not user:
+                    fallback_username = f"tg_{telegram_id}_{uuid.uuid4().hex[:6]}"
+                    user = User.objects.create(
+                        telegram_id=telegram_id,
+                        username=fallback_username,
+                        full_name=full_name,
+                        first_name=first_name,
+                        last_name=last_name,
+                        role=User.RoleChoices.ARENDATOR,
+                        plan=User.Plan.FREE,
+                        cars_limit=sub_settings.free_max_contracts,
+                        trial_ends_at=trial_end,
+                        expires_at=trial_end,
+                    )
+                    created = True
 
         if not created:
             updated = False
