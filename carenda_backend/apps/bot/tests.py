@@ -400,3 +400,32 @@ class BotDualOnboardingTests(TestCase):
         self.assertIn("Muvaffaqiyatli yakunlandi".lower(), msg_good_contact.answer.call_args_list[0][0][0].lower())
         kb_call = msg_good_contact.answer.call_args_list[1][1]["reply_markup"]
         self.assertTrue(kb_call.inline_keyboard[0][0].web_app.url.endswith("/client"))
+
+    async def test_general_contact_does_not_bypass_unfinished_webapp_onboarding(self):
+        from apps.bot.handlers import handle_general_contact
+
+        # Simulates a user created via Mini App initData who has NOT finished /login onboarding yet
+        user = await User.objects.acreate(
+            username="pending_webapp_user",
+            telegram_id=111222333,
+            role=User.RoleChoices.ARENDATOR,
+            is_onboarded=False,
+            is_registered=False,
+        )
+
+        state = MockFSMContext()
+        contact_mock = MagicMock()
+        contact_mock.user_id = self.tg_user_mock.id
+        contact_mock.phone_number = "998915119590"
+        msg = MagicMock()
+        msg.from_user = self.tg_user_mock
+        msg.contact = contact_mock
+        msg.answer = AsyncMock()
+
+        await handle_general_contact(msg, state)
+
+        refreshed = await User.objects.aget(id=user.id)
+        self.assertEqual(refreshed.phone, "+998915119590")
+        self.assertFalse(refreshed.is_onboarded)
+        self.assertFalse(refreshed.is_registered)
+        self.assertIn("Mini App ilovasiga qaytib", msg.answer.call_args[0][0])

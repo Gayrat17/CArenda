@@ -115,7 +115,7 @@ export function CarendaApp() {
         // ignore if not supported in current client
       }
     }
-    loadData();
+    loadData(true);
 
     // Prevent multi-touch pinch-to-zoom and gesture zooming across mobile browsers
     const handleTouchMove = (e: TouchEvent) => {
@@ -189,7 +189,7 @@ export function CarendaApp() {
 
   // Contract created successfully
   const handleContractCreated = (carId: number) => {
-    loadData();
+    loadData(true);
     setSelectedCarForDetailId(carId);
     setActiveTab("cars");
   };

@@ -709,31 +709,51 @@ async def handle_general_contact(message: Message, state: FSMContext):
         return
 
     # User sent contact without active state (e.g. from Mini App requestContact or direct share)
+    contact_user_id = getattr(message.contact, "user_id", None)
+    if isinstance(contact_user_id, int) and contact_user_id != message.from_user.id:
+        await message.answer(
+            "⚠️ Iltimos, boshqa birovning emas, o'zingizning telefon raqamingizni yuboring.",
+        )
+        return
+
     user = await get_existing_user(message.from_user.id)
     raw_phone = message.contact.phone_number.strip()
     cleaned_phone = raw_phone if raw_phone.startswith("+") else f"+{raw_phone}"
 
     if user:
-        user.phone = cleaned_phone
-        user.phone_number = cleaned_phone
-        user.is_registered = True
-        user.is_onboarded = True
-        await sync_to_async(user.save)(update_fields=["phone", "phone_number", "is_registered", "is_onboarded"])
         from apps.fleet.services import invalidate_tenant_cache
         owner_id = user.tenant_owner.id if user.tenant_owner else user.id
+
+        # If user hasn't finished WebApp onboarding yet, ONLY save phone number!
+        # Do NOT force is_onboarded=True or assume default Arendator role!
+        if not user.is_onboarded:
+            user.phone = cleaned_phone
+            user.phone_number = cleaned_phone
+            await sync_to_async(user.save)(update_fields=["phone", "phone_number"])
+            await sync_to_async(invalidate_tenant_cache)(owner_id, user.telegram_id)
+            await message.answer(
+                f"✅ Telefon raqamingiz qabul qilindi: <b>{cleaned_phone}</b>.\n\n"
+                "Endi Mini App ilovasiga qaytib ro'yxatdan o'tishni yakunlang.",
+                parse_mode="HTML",
+            )
+            return
+
+        user.phone = cleaned_phone
+        user.phone_number = cleaned_phone
+        await sync_to_async(user.save)(update_fields=["phone", "phone_number"])
         await sync_to_async(invalidate_tenant_cache)(owner_id, user.telegram_id)
 
         role = (user.role or "").lower()
         if role in (User.RoleChoices.IJARACHI, User.RoleChoices.USER):
             await message.answer(
-                f"✅ Telefon raqamingiz muvaffaqiyatli saqlandi: <b>{cleaned_phone}</b>.\n\n"
+                f"✅ Telefon raqamingiz muvaffaqiyatli yangilandi: <b>{cleaned_phone}</b>.\n\n"
                 "Quyidagi tugma orqali to'lovlar jadvalingizni ko'rishingiz mumkin:",
                 parse_mode="HTML",
                 reply_markup=get_client_miniapp_inline_keyboard(),
             )
         else:
             await message.answer(
-                f"✅ Telefon raqamingiz muvaffaqiyatli saqlandi: <b>{cleaned_phone}</b>.\n\n"
+                f"✅ Telefon raqamingiz muvaffaqiyatli yangilandi: <b>{cleaned_phone}</b>.\n\n"
                 "Mini App'ni ochishingiz mumkin:",
                 parse_mode="HTML",
                 reply_markup=get_miniapp_inline_keyboard(),
