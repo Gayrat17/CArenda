@@ -537,7 +537,7 @@ export function CarDetailModal({
                     <div className="space-y-2">
                       {activeContract.payments.map((p) => {
                         const pInfo = getPaymentStatusInfo(p.status);
-                        const isPayable = p.status === "pending" || p.status === "partial";
+                        const isPayable = p.status === "pending" || p.status === "partial" || p.status === "overdue";
                         // A payment is locked if any prior month (strictly lower month_number) is not yet paid
                         const hasUnpaidPriorMonth = activeContract.payments.some(
                           (prev) => prev.month_number < p.month_number && prev.status !== "paid"

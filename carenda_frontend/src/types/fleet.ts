@@ -60,7 +60,7 @@ export interface ClientPaymentScheduleItem {
   expected_amount: string;
   paid_amount: string;
   remaining_amount: string;
-  status: "pending" | "partial" | "paid";
+  status: "pending" | "partial" | "overdue" | "paid" | "cancelled";
   paid_at: string | null;
   comment: string;
   days_overdue: number;
@@ -248,7 +248,7 @@ export interface Contract extends ContractSummary {
   payments: Payment[];
 }
 
-export type PaymentStatus = "pending" | "partial" | "paid" | "cancelled";
+export type PaymentStatus = "pending" | "partial" | "overdue" | "paid" | "cancelled";
 
 export interface Payment {
   id: number;

@@ -4,36 +4,55 @@ from celery import shared_task
 from aiogram import Bot
 from django.conf import settings
 
-from apps.bot.services import send_daily_overdue_notifications
+from apps.bot.services import (
+    send_arendator_overdue_notifications,
+    send_ijarachi_payment_notifications,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _run_with_bot(coro_factory, task_name: str) -> int:
+    """Initializes the Aiogram Bot safely, executes `coro_factory(bot)`, and closes the session."""
+    bot_token = getattr(settings, "TELEGRAM_BOT_TOKEN", None)
+    if not bot_token or bot_token == "dev_bot_token_123456":
+        logger.info("Bot token not configured or default dev token; skipping %s.", task_name)
+        return 0
+
+    async def _runner():
+        bot = Bot(token=bot_token)
+        try:
+            return await coro_factory(bot)
+        finally:
+            await bot.session.close()
+
+    try:
+        return asyncio.run(_runner())
+    except Exception as e:
+        logger.error("Error executing %s: %s", task_name, e)
+        return 0
 
 
 @shared_task(name="apps.bot.tasks.send_daily_overdue_alerts_task")
 def send_daily_overdue_alerts_task() -> int:
     """
     Celery background task to trigger daily overdue alerts to all Arendators.
-    Runs every morning at 09:00 via Celery Beat or manual trigger.
+    Runs every morning at 09:00 Asia/Tashkent via Celery Beat or manual trigger.
     """
-    bot_token = getattr(settings, "TELEGRAM_BOT_TOKEN", None)
-    if not bot_token or bot_token == "dev_bot_token_123456":
-        logger.info("Bot token not configured or default dev token; skipping alert task.")
-        return 0
+    count = _run_with_bot(send_arendator_overdue_notifications, "send_daily_overdue_alerts_task")
+    logger.info("Overdue alerts sent to %s tenants via Celery task.", count)
+    return count
 
-    async def _runner():
-        bot = Bot(token=bot_token)
-        try:
-            return await send_daily_overdue_notifications(bot)
-        finally:
-            await bot.session.close()
 
-    try:
-        count = asyncio.run(_runner())
-        logger.info(f"Overdue alerts sent to {count} tenants via Celery task.")
-        return count
-    except Exception as e:
-        logger.error(f"Error executing send_daily_overdue_alerts_task: {e}")
-        return 0
+@shared_task(name="apps.bot.tasks.send_payment_notifications")
+def send_payment_notifications() -> int:
+    """
+    Celery background task enforcing exact 7-day, due-today, and daily overdue
+    Telegram payment notifications for onboarded Ijarachi clients.
+    """
+    count = _run_with_bot(send_ijarachi_payment_notifications, "send_payment_notifications")
+    logger.info("Payment notifications sent to %s Ijarachi installments.", count)
+    return count
 
 
 @shared_task(name="apps.bot.tasks.send_payment_receipt_notification_task")

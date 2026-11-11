@@ -123,7 +123,7 @@ export default function ClientPortalPage() {
   const nextPaymentForActive = useMemo(() => {
     if (!activeContract) return null;
     const pendingList = activeContract.payments.filter(
-      (p) => p.status === "pending" || p.status === "partial"
+      (p) => p.status === "pending" || p.status === "partial" || p.status === "overdue"
     );
     if (!pendingList.length) return null;
     const p = pendingList[0];
@@ -597,7 +597,7 @@ export default function ClientPortalPage() {
             {activeContract.payments.map((p) => {
               const isPaid = p.status === "paid";
               const isPartial = p.status === "partial";
-              const isOverdue = !isPaid && p.days_overdue > 0;
+              const isOverdue = !isPaid && (p.status === "overdue" || p.days_overdue > 0);
 
               return (
                 <div

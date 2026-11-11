@@ -271,8 +271,11 @@ class Payment(models.Model):
     class Status(models.TextChoices):
         PENDING = "pending", "Kutilmoqda"
         PARTIAL = "partial", "Qisman"
+        OVERDUE = "overdue", "Muddati o'tgan"
         PAID = "paid", "To'langan"
         CANCELLED = "cancelled", "Bekor qilingan"
+
+    OPEN_STATUSES = (Status.PENDING, Status.PARTIAL, Status.OVERDUE)
 
     contract = models.ForeignKey(
         Contract,
@@ -313,6 +316,16 @@ class Payment(models.Model):
         db_index=True,
         verbose_name="Is Postponed",
         help_text="Har bir oy to'lovi faqat bir marta 1 oyga surilishi mumkin.",
+    )
+    last_notified_date = models.DateField(
+        null=True,
+        blank=True,
+        db_index=True,
+        verbose_name="Last Notified Date",
+    )
+    notified_7days_before = models.BooleanField(
+        default=False,
+        verbose_name="Notified 7 Days Before",
     )
 
     class Meta:

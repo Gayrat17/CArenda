@@ -359,7 +359,7 @@ def postpone_contract_payments_service(
     payments_to_shift = list(
         Payment.objects.filter(
             contract=payment.contract,
-            status__in=[Payment.Status.PENDING, Payment.Status.PARTIAL],
+            status__in=Payment.OPEN_STATUSES,
             month_number__gte=payment.month_number,
         ).order_by("month_number")
     )
@@ -367,11 +367,19 @@ def postpone_contract_payments_service(
     if not payments_to_shift:
         raise ValidationError("Surish uchun to'lovlar topilmadi.")
 
+    today = timezone.localdate()
     contract_day = payment.contract.payment_day
     for p in payments_to_shift:
         target = p.due_date + relativedelta(months=1)
         max_days = calendar.monthrange(target.year, target.month)[1]
         p.due_date = date(target.year, target.month, min(contract_day, max_days))
+        p.notified_7days_before = False
+        if p.status == Payment.Status.OVERDUE and p.due_date >= today:
+            p.status = (
+                Payment.Status.PARTIAL
+                if p.paid_amount > Decimal("0.00")
+                else Payment.Status.PENDING
+            )
 
     clean_comment = (comment or "").strip()
     note = f"[1 oyga surildi] {clean_comment}" if clean_comment else "[1 oyga surildi]"
@@ -385,7 +393,10 @@ def postpone_contract_payments_service(
             payment.comment = p.comment
             payment.is_postponed = True
 
-    Payment.objects.bulk_update(payments_to_shift, ["due_date", "comment", "is_postponed"])
+    Payment.objects.bulk_update(
+        payments_to_shift,
+        ["due_date", "comment", "is_postponed", "status", "notified_7days_before"],
+    )
     invalidate_tenant_cache(owner.id, getattr(owner, "telegram_id", None))
     return payments_to_shift
 
@@ -406,9 +417,9 @@ def close_contract_service(
     if not contract.is_active:
         raise ValidationError("Shartnoma allaqachon yopilgan.")
 
-    contract.payments.filter(status=Payment.Status.PENDING).update(
-        status=Payment.Status.CANCELLED
-    )
+    contract.payments.filter(
+        status__in=[Payment.Status.PENDING, Payment.Status.OVERDUE]
+    ).update(status=Payment.Status.CANCELLED)
 
     contract.is_active = False
     contract.closed_at = timezone.now()

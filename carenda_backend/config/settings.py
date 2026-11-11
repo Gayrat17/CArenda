@@ -181,6 +181,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.bot.tasks.send_daily_overdue_alerts_task",
         "schedule": crontab(hour=9, minute=0),
     },
+    "send_payment_notifications_morning": {
+        "task": "apps.bot.tasks.send_payment_notifications",
+        "schedule": crontab(hour=9, minute=0),
+    },
 }
 
 # Custom User Model

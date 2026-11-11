@@ -317,6 +317,12 @@ export function getPaymentStatusInfo(status: string): { label: string; bg: strin
         bg: "bg-amber-100",
         text: "text-amber-800",
       };
+    case "overdue":
+      return {
+        label: "Muddati o'tgan",
+        bg: "bg-rose-100",
+        text: "text-rose-700",
+      };
     case "pending":
       return {
         label: "Kutilmoqda",

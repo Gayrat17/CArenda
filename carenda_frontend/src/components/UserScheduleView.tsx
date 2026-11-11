@@ -289,7 +289,7 @@ export function UserScheduleView({ user, initialContracts, onRefreshUser }: User
               {activeContract.payments.map((p) => {
                 const isPaid = p.status === "paid";
                 const isPartial = p.status === "partial";
-                const isOverdue = !isPaid && p.days_overdue > 0;
+                const isOverdue = !isPaid && (p.status === "overdue" || p.days_overdue > 0);
 
                 return (
                   <div

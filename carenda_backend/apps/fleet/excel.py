@@ -140,6 +140,7 @@ def generate_tenant_excel_report(owner: User) -> bytes:
     payment_status_map = {
         Payment.Status.PAID: "To'langan",
         Payment.Status.PARTIAL: "Qisman",
+        Payment.Status.OVERDUE: "Muddati o'tgan",
         Payment.Status.PENDING: "Kutilmoqda",
         Payment.Status.CANCELLED: "Bekor qilingan",
     }
@@ -323,6 +324,7 @@ def generate_single_contract_excel_report(contract: Contract) -> bytes:
     payment_status_map = {
         Payment.Status.PAID: "To'langan",
         Payment.Status.PARTIAL: "Qisman",
+        Payment.Status.OVERDUE: "Muddati o'tgan",
         Payment.Status.PENDING: "Kutilmoqda",
         Payment.Status.CANCELLED: "Bekor qilingan",
     }

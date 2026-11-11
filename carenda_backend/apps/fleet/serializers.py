@@ -154,7 +154,7 @@ class CarListSerializer(serializers.ModelSerializer):
         else:
             next_payment = (
                 active_contract.payments.filter(
-                    status__in=[Payment.Status.PENDING, Payment.Status.PARTIAL]
+                    status__in=Payment.OPEN_STATUSES
                 )
                 .order_by("due_date")
                 .first()

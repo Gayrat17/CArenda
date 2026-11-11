@@ -32,7 +32,13 @@ class Command(BaseCommand):
             self.stdout.write("Queueing overdue alert task in Celery...")
             try:
                 task = send_daily_overdue_alerts_task.delay()
-                self.stdout.write(self.style.SUCCESS(f"Task queued successfully with ID: {task.id}"))
+                from apps.bot.tasks import send_payment_notifications
+                client_task = send_payment_notifications.delay()
+                self.stdout.write(
+                    self.style.SUCCESS(
+                        f"Tasks queued successfully: arendator={task.id}, ijarachi={client_task.id}"
+                    )
+                )
                 return
             except Exception as e:
                 self.stdout.write(self.style.WARNING(f"Celery queue failed ({e}), falling back to direct run..."))

@@ -118,7 +118,7 @@ def get_dashboard_data_for_owner(owner, today=None):
         Payment.objects.filter(
             contract__owner=owner,
             contract__is_active=True,
-            status__in=[Payment.Status.PENDING, Payment.Status.PARTIAL],
+            status__in=Payment.OPEN_STATUSES,
             due_date__lte=today,
         )
         .select_related("contract__car", "contract__driver")
@@ -161,7 +161,7 @@ def get_dashboard_data_for_owner(owner, today=None):
         Payment.objects.filter(
             contract__owner=owner,
             contract__is_active=True,
-            status__in=[Payment.Status.PENDING, Payment.Status.PARTIAL],
+            status__in=Payment.OPEN_STATUSES,
             due_date__gt=today,
             due_date__lte=next_7_days,
         )
@@ -250,7 +250,7 @@ def get_cars_data_for_owner(owner):
             Prefetch(
                 "payments",
                 queryset=Payment.objects.filter(
-                    status__in=[Payment.Status.PENDING, Payment.Status.PARTIAL]
+                    status__in=Payment.OPEN_STATUSES
                 ).order_by("due_date"),
                 to_attr="pending_payments",
             )
@@ -320,7 +320,7 @@ def get_user_schedule_data(user):
         paid_total = sum(p.paid_amount for p in payments_qs)
         remaining_total = sum(p.remaining_amount for p in payments_qs)
         next_p = payments_qs.filter(
-            status__in=[Payment.Status.PENDING, Payment.Status.PARTIAL]
+            status__in=Payment.OPEN_STATUSES
         ).first()
 
         payments_list = []
@@ -719,7 +719,7 @@ class OverduePaymentsAPIView(APIView):
         overdue_qs = (
             Payment.objects.filter(
                 contract__owner=owner,
-                status__in=[Payment.Status.PENDING, Payment.Status.PARTIAL],
+                status__in=Payment.OPEN_STATUSES,
                 due_date__lte=today,
             )
             .select_related("contract__car", "contract__driver")
