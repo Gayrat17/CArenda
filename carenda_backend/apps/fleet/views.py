@@ -483,6 +483,12 @@ class CarDetailAPIView(APIView):
         return Response(CarDetailSerializer(car).data)
 
     def patch(self, request, pk):
+        owner = request.user.tenant_owner
+        if owner.is_frozen:
+            return Response(
+                {"detail": "Hisobingiz muzlatilgan. Iltimos, obunani faollashtiring.", "code": "account_frozen"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         car = self.get_object(request, pk)
         serializer = CarCreateUpdateSerializer(car, data=request.data, partial=True)
         if not serializer.is_valid():
@@ -682,6 +688,11 @@ class ContractCloseAPIView(APIView):
 
     def post(self, request, pk):
         owner = request.user.tenant_owner
+        if owner.is_frozen:
+            return Response(
+                {"detail": "Hisobingiz muzlatilgan. Iltimos, obunani faollashtiring.", "code": "account_frozen"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         contract = get_object_or_404(Contract, pk=pk, owner=owner)
         serializer = CloseContractSerializer(data=request.data)
         if not serializer.is_valid():

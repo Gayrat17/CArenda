@@ -15,6 +15,7 @@ import {
   CreditCard,
   QrCode,
   Upload,
+  Crown,
 } from "lucide-react";
 import { User as UserType } from "@/types/fleet";
 import { getPaymentSettings, updateMe, updatePaymentSettings } from "@/lib/api";
@@ -213,6 +214,33 @@ export function SettingsTab({ user, onRefreshUser }: SettingsTabProps) {
           <UserIcon className="w-5 h-5" />
         </div>
       </div>
+
+      {/* Prominent Superadmin Panel Entry Card */}
+      {(user?.is_superuser || user?.is_superadmin || user?.role === "superadmin") && (
+        <button
+          type="button"
+          onClick={() => router.push("/superadmin")}
+          className="w-full text-left bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 text-white p-4 rounded-3xl shadow-md hover:brightness-105 active:scale-[0.99] transition cursor-pointer flex items-center justify-between gap-3"
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="p-2.5 bg-white/20 rounded-2xl shrink-0">
+              <Crown className="w-5 h-5 text-white" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-amber-100">
+                Platforma Boshqaruvi
+              </p>
+              <h3 className="text-sm font-extrabold truncate">
+                👑 Superadmin Panel
+              </h3>
+              <p className="text-[11px] text-amber-50/90 mt-0.5 truncate">
+                Arendatorlar, obuna so&apos;rovlari va Paynet narxlari
+              </p>
+            </div>
+          </div>
+          <ChevronRight className="w-5 h-5 text-white shrink-0" />
+        </button>
+      )}
 
       {/* Subscription & Role Status Card */}
       <div

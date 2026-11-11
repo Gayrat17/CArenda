@@ -756,3 +756,180 @@ class AuthOnboardingRBACFlowTests(TestCase):
             self.assertNotEqual(new_user.username, "XushboqovG")
             self.assertEqual(new_user.username, "XushboqovG_1318702560")
 
+
+class SuperadminDashboardAPITests(TestCase):
+    def setUp(self):
+        from django.utils import timezone
+        from datetime import timedelta
+
+        self.now = timezone.now()
+        self.superadmin_tg_id = 777000111
+        self.superadmin = User.objects.create_user(
+            username="super_owner",
+            full_name="Platform Superadmin",
+            telegram_id=self.superadmin_tg_id,
+            phone="+998901000001",
+            role=User.RoleChoices.ARENDATOR,
+            is_superuser=True,
+            is_staff=True,
+            is_onboarded=True,
+        )
+        self.free_arendator = User.objects.create_user(
+            username="free_lessor",
+            full_name="Free Lessor",
+            telegram_id=777000222,
+            phone="+998902220001",
+            role=User.RoleChoices.ARENDATOR,
+            plan=User.Plan.FREE,
+            trial_ends_at=self.now + timedelta(days=30),
+            expires_at=self.now + timedelta(days=30),
+            is_onboarded=True,
+        )
+        self.expired_arendator = User.objects.create_user(
+            username="expired_lessor",
+            full_name="Expired Lessor",
+            telegram_id=777000333,
+            phone="+998903330001",
+            role=User.RoleChoices.ARENDATOR,
+            plan=User.Plan.FREE,
+            trial_ends_at=self.now - timedelta(days=5),
+            expires_at=self.now - timedelta(days=5),
+            is_onboarded=True,
+        )
+        self.ijarachi = User.objects.create_user(
+            username="ijarachi_client",
+            full_name="Client User",
+            telegram_id=777000444,
+            phone="+998904440001",
+            role=User.RoleChoices.IJARACHI,
+            linked_arendator=self.free_arendator,
+            is_onboarded=True,
+        )
+
+        self.client_super = APIClient()
+        self.client_super.force_authenticate(user=self.superadmin)
+        self.client_free = APIClient()
+        self.client_free.force_authenticate(user=self.free_arendator)
+        self.client_ijarachi = APIClient()
+        self.client_ijarachi.force_authenticate(user=self.ijarachi)
+
+    def test_superadmin_permissions_strict_403_for_others(self):
+        for api_client in (self.client_free, self.client_ijarachi):
+            self.assertEqual(api_client.get("/api/v1/superadmin/arendators/").status_code, 403)
+            self.assertEqual(api_client.get("/api/v1/superadmin/settings/").status_code, 403)
+            self.assertEqual(api_client.get("/api/v1/superadmin/requests/").status_code, 403)
+            self.assertEqual(
+                api_client.post(f"/api/v1/superadmin/arendators/{self.free_arendator.id}/toggle-freeze/").status_code,
+                403,
+            )
+
+        self.assertEqual(self.client_super.get("/api/v1/superadmin/arendators/").status_code, 200)
+        self.assertEqual(self.client_super.get("/api/v1/superadmin/settings/").status_code, 200)
+
+    def test_superadmin_auto_recognition_via_env_and_auth_telegram(self):
+        import urllib.parse
+        import json
+        from django.test import override_settings
+
+        new_super_tg_id = 555666777
+        user_payload = json.dumps({
+            "id": new_super_tg_id,
+            "first_name": "Boss",
+            "last_name": "Admin",
+            "username": "boss_carenda",
+        })
+        init_data = urllib.parse.urlencode({"user": user_payload, "hash": "fake"})
+
+        anon = APIClient()
+        with override_settings(DEBUG=True, SUPERADMIN_TELEGRAM_IDS=[new_super_tg_id]):
+            res = anon.post(
+                "/api/v1/auth/telegram/",
+                {"initData": init_data},
+                HTTP_AUTHORIZATION=f"tma {init_data}",
+                format="json",
+            )
+            self.assertEqual(res.status_code, 200)
+            data = res.json()
+            self.assertTrue(data["is_superuser"])
+            self.assertTrue(data["is_superadmin"])
+            db_u = User.objects.get(telegram_id=new_super_tg_id)
+            self.assertTrue(db_u.is_superuser)
+            self.assertTrue(db_u.is_staff)
+
+    def test_kpi_filters_toggle_freeze_and_grant_subscription(self):
+        res = self.client_super.get("/api/v1/superadmin/arendators/").json()
+        self.assertEqual(res["kpi"]["total"], 3)
+        self.assertEqual(res["kpi"]["expired"], 1)
+
+        # Filter expired only
+        res_exp = self.client_super.get("/api/v1/superadmin/arendators/?filter=expired").json()
+        self.assertEqual(len(res_exp["arendators"]), 1)
+        self.assertEqual(res_exp["arendators"][0]["id"], self.expired_arendator.id)
+
+        # Freeze free_arendator
+        res_freeze = self.client_super.post(
+            f"/api/v1/superadmin/arendators/{self.free_arendator.id}/toggle-freeze/"
+        )
+        self.assertEqual(res_freeze.status_code, 200)
+        self.free_arendator.refresh_from_db()
+        self.assertTrue(self.free_arendator.is_frozen)
+
+        # Frozen arendator is blocked from creating cars or contracts (403)
+        res_create_car = self.client_free.post(
+            "/api/v1/cars/",
+            {"name": "Blocked Car", "plate_number": "01Z001ZZ"},
+            format="json",
+        )
+        self.assertEqual(res_create_car.status_code, 403)
+
+        # Grant Standart (+30 days) unfreezes and enables unlimited access
+        res_grant = self.client_super.post(
+            f"/api/v1/superadmin/arendators/{self.free_arendator.id}/grant-subscription/",
+            {"days": 30},
+            format="json",
+        )
+        self.assertEqual(res_grant.status_code, 200)
+        self.free_arendator.refresh_from_db()
+        self.assertFalse(self.free_arendator.is_frozen)
+        self.assertEqual(self.free_arendator.plan, User.Plan.STANDARD)
+        self.assertTrue(self.free_arendator.is_subscription_active)
+
+    def test_superadmin_settings_and_requests_approve_reject(self):
+        from apps.users.models import SubscriptionRequest
+
+        # Update pricing & Paynet settings
+        res_patch = self.client_super.patch(
+            "/api/v1/superadmin/settings/",
+            {
+                "standart_price": 220000,
+                "free_duration_days": 45,
+                "free_max_contracts": 5,
+                "card_number": "8600 1111 2222 3333",
+                "card_holder": "GAYRATJON X",
+            },
+            format="json",
+        )
+        self.assertEqual(res_patch.status_code, 200)
+        self.assertEqual(res_patch.json()["standart_price"], 220000)
+
+        # Arendator subscription status reflects new dynamic price immediately
+        res_status = self.client_free.get("/api/v1/subscriptions/status/").json()
+        self.assertEqual(res_status["standart_price"], 220000)
+
+        # Pending request approve/reject
+        sub_req = SubscriptionRequest.objects.create(
+            user=self.expired_arendator,
+            plan_type=SubscriptionRequest.PlanType.STANDARD,
+            amount=220000,
+            note="Paynet test check",
+        )
+        list_res = self.client_super.get("/api/v1/superadmin/requests/?status=pending").json()
+        self.assertEqual(len(list_res), 1)
+        self.assertEqual(list_res[0]["id"], sub_req.id)
+
+        app_res = self.client_super.post(f"/api/v1/superadmin/requests/{sub_req.id}/approve/")
+        self.assertEqual(app_res.status_code, 200)
+        self.expired_arendator.refresh_from_db()
+        self.assertEqual(self.expired_arendator.plan, User.Plan.STANDARD)
+        self.assertTrue(self.expired_arendator.is_subscription_active)
+

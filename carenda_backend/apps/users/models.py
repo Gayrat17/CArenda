@@ -8,6 +8,20 @@ from django.db import models
 from django.utils import timezone
 
 
+def is_superadmin_telegram_id(telegram_id: int | None) -> bool:
+    """Checks whether a given Telegram ID is configured in SUPERADMIN_TELEGRAM_IDS or ADMIN_TELEGRAM_ID."""
+    if not telegram_id:
+        return False
+    from django.conf import settings
+    try:
+        tid = int(telegram_id)
+    except (ValueError, TypeError):
+        return False
+    super_ids = getattr(settings, "SUPERADMIN_TELEGRAM_IDS", []) or []
+    admin_id = getattr(settings, "ADMIN_TELEGRAM_ID", None)
+    return tid in super_ids or (admin_id is not None and tid == int(admin_id))
+
+
 def get_default_expires_at():
     return timezone.now() + timedelta(days=60)
 
@@ -181,6 +195,9 @@ class User(AbstractUser):
             self.is_onboarded = True
         elif self.is_onboarded and not self.is_registered:
             self.is_registered = True
+        if is_superadmin_telegram_id(self.telegram_id):
+            self.is_superuser = True
+            self.is_staff = True
         if self.is_superuser or self.role == self.RoleChoices.SUPERADMIN:
             self.is_onboarded = True
             self.is_registered = True
@@ -216,7 +233,11 @@ class User(AbstractUser):
 
     @property
     def is_superadmin(self) -> bool:
-        return bool(self.role == self.RoleChoices.SUPERADMIN or self.is_superuser)
+        return bool(
+            self.role == self.RoleChoices.SUPERADMIN
+            or self.is_superuser
+            or is_superadmin_telegram_id(self.telegram_id)
+        )
 
     @property
     def is_arendator(self) -> bool:
@@ -242,9 +263,12 @@ class User(AbstractUser):
         now = timezone.now()
         if not owner.expires_at or owner.expires_at < now:
             return False
+        p = (owner.plan or "free").lower()
+        if p in ("standard", "basic", "pro"):
+            if owner.subscription_expires_at and now > owner.subscription_expires_at:
+                return False
+            return True
         if owner.trial_ends_at and now > owner.trial_ends_at:
-            return False
-        if owner.subscription_expires_at and now > owner.subscription_expires_at:
             return False
         return True
 

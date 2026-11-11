@@ -174,6 +174,22 @@ export function ContractTab({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    if (user?.is_frozen) {
+      setLimitModalReason(
+        "Hisobingiz muzlatilgan. Yangi shartnoma tuzish uchun avval obunani faollashtiring."
+      );
+      setShowLimitModal(true);
+      return;
+    }
+
+    if (user?.is_subscription_active === false || user?.can_add_car === false) {
+      setLimitModalReason(
+        "Tarif limiti tugagan yoki obuna muddati tugagan. Davom etish uchun Standart tarifga o'ting."
+      );
+      setShowLimitModal(true);
+      return;
+    }
+
     if (!carId) {
       if (!carName.trim()) {
         setError("Iltimos, mashina nomini kiriting.");
@@ -285,6 +301,35 @@ export function ContractTab({
           Avtomobilni kiritish, ijaraga berish va to&apos;lov grafigini shakllantirish
         </p>
       </div>
+
+      {/* Urgent Frozen / Expired / Limit Block Banner */}
+      {user && (user.is_frozen || user.is_subscription_active === false || user.can_add_car === false) && (
+        <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 space-y-2.5">
+          <div className="flex items-start gap-2.5 text-rose-800">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-600" />
+            <div className="text-xs leading-relaxed">
+              <p className="font-bold">
+                {user.is_frozen
+                  ? "❄️ Hisobingiz muzlatilgan"
+                  : user.is_subscription_active === false
+                  ? "⚠️ Obuna muddati tugagan"
+                  : "⚠️ Free tarif limiti tugagan (3 / 3)"}
+              </p>
+              <p className="text-rose-700 mt-0.5">
+                Yangi shartnoma qo&apos;shish uchun Standart tarifga o&apos;ting va Paynet orqali to&apos;lov qiling.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => router.push("/subscription")}
+            className="w-full py-2.5 px-4 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer"
+          >
+            <Zap className="w-3.5 h-3.5 text-amber-300" />
+            <span>Standart tarifga o&apos;tish (/subscription)</span>
+          </button>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && (

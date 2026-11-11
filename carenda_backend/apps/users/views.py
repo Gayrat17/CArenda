@@ -4,7 +4,8 @@ import logging
 import re
 
 from django.conf import settings
-from django.db.models import Q
+from django.db.models import Count, Q
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -15,8 +16,15 @@ from rest_framework.views import APIView
 from apps.fleet.models import Contract, Driver, normalize_phone
 from apps.fleet.services import invalidate_tenant_cache
 from apps.users.authentication import TelegramWebAppAuthentication
-from apps.users.models import PaymentSettings, SubscriptionRequest, SubscriptionSettings, User, UserSetting
-from apps.users.permissions import IsArendator, IsIjarachi, IsOnboarded
+from apps.users.models import (
+    PaymentSettings,
+    SubscriptionRequest,
+    SubscriptionSettings,
+    User,
+    UserSetting,
+    is_superadmin_telegram_id,
+)
+from apps.users.permissions import IsArendator, IsIjarachi, IsOnboarded, IsSuperAdmin
 from apps.users.serializers import (
     PaymentSettingsSerializer,
     PaymentSettingsUpdateSerializer,
@@ -24,8 +32,14 @@ from apps.users.serializers import (
     SubscriptionRequestSerializer,
     SubscriptionSettingsSerializer,
     SubscriptionSettingsUpdateSerializer,
+    SuperadminArendatorSerializer,
     UserMeSerializer,
     UserMeUpdateSerializer,
+)
+from apps.users.services import (
+    grant_arendator_subscription,
+    process_subscription_approval,
+    process_subscription_rejection,
 )
 
 logger = logging.getLogger(__name__)
@@ -92,8 +106,11 @@ def notify_admins_of_subscription_request(sub_request: SubscriptionRequest) -> b
         return False
 
     admin_ids = []
+    for sid in getattr(settings, "SUPERADMIN_TELEGRAM_IDS", []) or []:
+        if sid not in admin_ids:
+            admin_ids.append(sid)
     admin_tg_id = getattr(settings, "ADMIN_TELEGRAM_ID", None)
-    if admin_tg_id:
+    if admin_tg_id and admin_tg_id not in admin_ids:
         admin_ids.append(admin_tg_id)
 
     superadmins = User.objects.filter(
@@ -339,6 +356,14 @@ class TelegramAuthAPIView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
+        if is_superadmin_telegram_id(getattr(user, "telegram_id", None)):
+            if not (user.is_superuser and user.is_staff and user.is_onboarded):
+                user.is_superuser = True
+                user.is_staff = True
+                user.is_onboarded = True
+                user.is_registered = True
+                user.save(update_fields=["is_superuser", "is_staff", "is_onboarded", "is_registered"])
+
         return Response(UserMeSerializer(user).data, status=status.HTTP_200_OK)
 
 
@@ -525,3 +550,233 @@ class CompleteOnboardingAPIView(APIView):
         invalidate_tenant_cache(user.tenant_owner.id, getattr(user, "telegram_id", None))
 
         return Response(UserMeSerializer(user).data, status=status.HTTP_200_OK)
+
+
+# =============================================================================
+# Superadmin Endpoints (Protected strictly by IsSuperAdmin)
+# =============================================================================
+
+class SuperadminArendatorsAPIView(APIView):
+    """
+    Lists all Arendators (lessors) with top KPI metrics, search, and status filter.
+    GET /api/superadmin/arendators/?search=...&filter=all|standard|free|expired|frozen
+    """
+    permission_classes = [IsAuthenticated, IsSuperAdmin]
+
+    def get(self, request):
+        base_qs = (
+            User.objects.filter(
+                role__in=[User.RoleChoices.ARENDATOR, "owner", User.RoleChoices.SUPERADMIN]
+            )
+            .annotate(
+                annotated_cars_count=Count("cars", distinct=True),
+                annotated_active_contracts=Count(
+                    "contracts", filter=Q(contracts__is_active=True), distinct=True
+                ),
+            )
+            .order_by("-date_joined")
+        )
+
+        # Compute global KPIs across all registered Arendators
+        kpi = {
+            "total": 0,
+            "standard": 0,
+            "free": 0,
+            "expired": 0,
+            "frozen": 0,
+            "pending_requests": SubscriptionRequest.objects.filter(
+                status=SubscriptionRequest.Status.PENDING
+            ).count(),
+        }
+        all_arendators = list(base_qs)
+        for u in all_arendators:
+            kpi["total"] += 1
+            if u.is_frozen:
+                kpi["frozen"] += 1
+            elif not u.is_subscription_active:
+                kpi["expired"] += 1
+            else:
+                p = (u.plan or "free").lower()
+                if p in ("standard", "basic", "pro"):
+                    kpi["standard"] += 1
+                else:
+                    kpi["free"] += 1
+
+        search_q = str(request.query_params.get("search") or "").strip().lower()
+        filter_tab = str(request.query_params.get("filter") or "all").strip().lower()
+
+        filtered = []
+        for u in all_arendators:
+            if search_q:
+                haystack = " ".join(
+                    filter(
+                        None,
+                        [
+                            u.full_name,
+                            u.phone,
+                            u.phone_number,
+                            u.username,
+                            u.tenant_code,
+                        ],
+                    )
+                ).lower()
+                if search_q not in haystack:
+                    continue
+
+            if filter_tab == "frozen" and not u.is_frozen:
+                continue
+            elif filter_tab == "expired" and (u.is_frozen or u.is_subscription_active):
+                continue
+            elif filter_tab == "standard":
+                p = (u.plan or "free").lower()
+                if u.is_frozen or not u.is_subscription_active or p not in ("standard", "basic", "pro"):
+                    continue
+            elif filter_tab == "free":
+                p = (u.plan or "free").lower()
+                if u.is_frozen or not u.is_subscription_active or p in ("standard", "basic", "pro"):
+                    continue
+
+            filtered.append(u)
+
+        serializer = SuperadminArendatorSerializer(filtered, many=True)
+        return Response({
+            "kpi": kpi,
+            "arendators": serializer.data,
+        })
+
+
+class SuperadminToggleFreezeAPIView(APIView):
+    """
+    Freezes or unfreezes an Arendator account.
+    POST /api/superadmin/arendators/<int:pk>/toggle-freeze/
+    """
+    permission_classes = [IsAuthenticated, IsSuperAdmin]
+
+    def post(self, request, pk):
+        target = get_object_or_404(User, pk=pk)
+        if target.pk == request.user.pk and not target.is_frozen:
+            return Response(
+                {"detail": "O'zingizning superadmin hisobingizni muzlatib qo'ya olmaysiz."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        target.is_frozen = not target.is_frozen
+        target.save(update_fields=["is_frozen"])
+        invalidate_tenant_cache(target.id, getattr(target, "telegram_id", None))
+
+        msg = (
+            f"❄️ {target.full_name or target.username} hisobi muzlatildi."
+            if target.is_frozen
+            else f"▶️ {target.full_name or target.username} hisobi muzlatishdan chiqarildi."
+        )
+        return Response({
+            "detail": msg,
+            "arendator": SuperadminArendatorSerializer(target).data,
+        })
+
+
+class SuperadminGrantSubscriptionAPIView(APIView):
+    """
+    Activates or extends an Arendator's Standart subscription (+30 days by default).
+    POST /api/superadmin/arendators/<int:pk>/grant-subscription/
+    """
+    permission_classes = [IsAuthenticated, IsSuperAdmin]
+
+    def post(self, request, pk):
+        target = get_object_or_404(User, pk=pk)
+        try:
+            days = int(request.data.get("days") or 30)
+            if days < 1 or days > 3650:
+                days = 30
+        except (ValueError, TypeError):
+            days = 30
+
+        grant_arendator_subscription(user=target, days=days, plan_type="standard", notify=True)
+        return Response({
+            "detail": f"✅ Standart obuna {days} kunga muvaffaqiyatli faollashtirildi!",
+            "arendator": SuperadminArendatorSerializer(target).data,
+        })
+
+
+class SuperadminSettingsAPIView(APIView):
+    """
+    Reads and updates global SubscriptionSettings (pricing, Paynet URL, Paynet QR, card info).
+    GET / PUT / PATCH /api/superadmin/settings/
+    """
+    permission_classes = [IsAuthenticated, IsSuperAdmin]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def get(self, request):
+        settings_obj = SubscriptionSettings.get_settings()
+        return Response(SubscriptionSettingsSerializer(settings_obj, context={"request": request}).data)
+
+    def patch(self, request):
+        settings_obj = SubscriptionSettings.get_settings()
+        serializer = SubscriptionSettingsUpdateSerializer(settings_obj, data=request.data, partial=True)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        updated = serializer.save()
+        return Response(SubscriptionSettingsSerializer(updated, context={"request": request}).data)
+
+    def put(self, request):
+        return self.patch(request)
+
+
+class SuperadminSubscriptionRequestsAPIView(APIView):
+    """
+    Lists incoming payment/subscription requests submitted by Arendators.
+    GET /api/superadmin/requests/?status=pending|approved|rejected|all
+    """
+    permission_classes = [IsAuthenticated, IsSuperAdmin]
+
+    def get(self, request):
+        status_filter = str(request.query_params.get("status") or "pending").strip().lower()
+        qs = SubscriptionRequest.objects.select_related("user").order_by("-created_at")
+        if status_filter != "all":
+            qs = qs.filter(status=status_filter)
+        serializer = SubscriptionRequestSerializer(qs, many=True)
+        return Response(serializer.data)
+
+
+class SuperadminApproveRequestAPIView(APIView):
+    """
+    Approves a pending SubscriptionRequest from Superadmin Web UI.
+    POST /api/superadmin/requests/<int:pk>/approve/
+    """
+    permission_classes = [IsAuthenticated, IsSuperAdmin]
+
+    def post(self, request, pk):
+        sub_req = get_object_or_404(SubscriptionRequest.objects.select_related("user"), pk=pk)
+        if sub_req.status != SubscriptionRequest.Status.PENDING:
+            return Response(
+                {"detail": f"Bu so'rov allaqachon ko'rib chiqilgan ({sub_req.get_status_display()})."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        reviewer = request.user.username or request.user.full_name or "Superadmin"
+        process_subscription_approval(sub_request=sub_req, reviewer_label=reviewer)
+        return Response({
+            "detail": "✅ To'lov tasdiqlandi va Standart obuna (+30 kun) faollashtirildi!",
+            "request": SubscriptionRequestSerializer(sub_req).data,
+        })
+
+
+class SuperadminRejectRequestAPIView(APIView):
+    """
+    Rejects a pending SubscriptionRequest from Superadmin Web UI.
+    POST /api/superadmin/requests/<int:pk>/reject/
+    """
+    permission_classes = [IsAuthenticated, IsSuperAdmin]
+
+    def post(self, request, pk):
+        sub_req = get_object_or_404(SubscriptionRequest.objects.select_related("user"), pk=pk)
+        if sub_req.status != SubscriptionRequest.Status.PENDING:
+            return Response(
+                {"detail": f"Bu so'rov allaqachon ko'rib chiqilgan ({sub_req.get_status_display()})."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        reason = str(request.data.get("reason") or "").strip()
+        reviewer = request.user.username or request.user.full_name or "Superadmin"
+        process_subscription_rejection(sub_request=sub_req, reviewer_label=reviewer, reason=reason)
+        return Response({
+            "detail": "❌ To'lov so'rovi rad etildi.",
+            "request": SubscriptionRequestSerializer(sub_req).data,
+        })

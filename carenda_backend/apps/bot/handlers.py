@@ -2,7 +2,7 @@ import logging
 from datetime import timedelta
 
 from aiogram import F, Router
-from aiogram.filters import CommandStart
+from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
@@ -23,7 +23,7 @@ from django.utils import timezone
 from apps.bot.services import build_overdue_summary_text, get_webapp_url
 from apps.fleet.excel import generate_tenant_excel_report
 from apps.fleet.models import Driver, normalize_phone
-from apps.users.models import User, UserSetting
+from apps.users.models import User, UserSetting, is_superadmin_telegram_id
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -114,6 +114,72 @@ def get_client_miniapp_inline_keyboard() -> InlineKeyboardMarkup:
             ]
         ]
     )
+
+
+def get_superadmin_inline_keyboard() -> InlineKeyboardMarkup:
+    webapp_url = get_webapp_url()
+    admin_url = f"{webapp_url.rstrip('/')}/superadmin"
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="👑 Superadmin Panelni ochish",
+                    web_app=WebAppInfo(url=admin_url),
+                )
+            ]
+        ]
+    )
+
+
+@sync_to_async
+def ensure_superadmin_user(from_user) -> User | None:
+    if not from_user:
+        return None
+    tg_id = getattr(from_user, "id", None)
+    if not tg_id:
+        return None
+    existing = User.objects.filter(telegram_id=tg_id).first()
+    is_env_admin = is_superadmin_telegram_id(tg_id)
+    if not is_env_admin and not (existing and existing.is_superadmin):
+        return None
+
+    if existing:
+        fields = []
+        if not existing.is_superuser:
+            existing.is_superuser = True
+            fields.append("is_superuser")
+        if not existing.is_staff:
+            existing.is_staff = True
+            fields.append("is_staff")
+        if not existing.is_onboarded:
+            existing.is_onboarded = True
+            fields.append("is_onboarded")
+        if not existing.is_registered:
+            existing.is_registered = True
+            fields.append("is_registered")
+        if fields:
+            existing.save(update_fields=fields)
+        return existing
+
+    from apps.users.authentication import resolve_unique_username
+    first_name = getattr(from_user, "first_name", "") or ""
+    last_name = getattr(from_user, "last_name", "") or ""
+    full_name = f"{first_name} {last_name}".strip() or getattr(from_user, "username", None) or "Superadmin"
+    username = resolve_unique_username(getattr(from_user, "username", None) or f"tg_{tg_id}", tg_id)
+    user = User.objects.create(
+        telegram_id=tg_id,
+        username=username,
+        full_name=full_name,
+        first_name=first_name,
+        last_name=last_name,
+        role=User.RoleChoices.ARENDATOR,
+        is_superuser=True,
+        is_staff=True,
+        is_onboarded=True,
+        is_registered=True,
+    )
+    UserSetting.objects.get_or_create(owner=user)
+    return user
 
 
 @sync_to_async
@@ -431,10 +497,11 @@ async def handle_start(message: Message, state: FSMContext):
         return
 
     tg_id = message.from_user.id
-    user = await get_existing_user(message.from_user)
+    super_user = await ensure_superadmin_user(message.from_user)
+    user = super_user or await get_existing_user(message.from_user)
 
-    # 1. Already registered user check
-    if user and user.is_registered and user.phone:
+    # 1. Already registered user check (or Superadmin bypassing unregistered phone block)
+    if user and ((user.is_registered and user.phone) or is_superadmin_telegram_id(tg_id)):
         await state.clear()
         if user.role in (User.RoleChoices.USER, User.RoleChoices.IJARACHI):
             welcome_text = (
@@ -450,12 +517,17 @@ async def handle_start(message: Message, state: FSMContext):
             return
 
         # Owner / Superadmin
+        super_line = (
+            "\n\n👑 <i>Superadmin sifatida /admin buyrug'i orqali boshqaruv panelini ochishingiz mumkin.</i>"
+            if (is_superadmin_telegram_id(tg_id) or user.is_superuser)
+            else ""
+        )
         welcome_text = (
             f"Assalomu alaykum, <b>{user.full_name}</b>!\n\n"
             f"Carenda boshqaruv tizimiga xush kelibsiz.\n"
             f"🔑 Maxsus kod: <b>{user.tenant_code}</b>\n"
             f"<i>(Ushbu kodni haydovchilaringizga bering, ular tizimga ulanishi uchun)</i>\n\n"
-            f"Pastdagi tugmani bosing:"
+            f"Pastdagi tugmani bosing:{super_line}"
         )
         await message.answer(
             welcome_text,
@@ -466,6 +538,11 @@ async def handle_start(message: Message, state: FSMContext):
             "Mini App'ni ishga tushirish:",
             reply_markup=get_miniapp_inline_keyboard(),
         )
+        if is_superadmin_telegram_id(tg_id) or user.is_superuser:
+            await message.answer(
+                "Superadmin paneliga tezkor kirish:",
+                reply_markup=get_superadmin_inline_keyboard(),
+            )
         return
 
     # 2. Not registered yet -> Ask role selection
@@ -480,6 +557,24 @@ async def handle_start(message: Message, state: FSMContext):
         prompt_text,
         parse_mode="HTML",
         reply_markup=get_role_selection_keyboard(),
+    )
+
+
+@router.message(Command("admin"))
+async def handle_admin_command(message: Message):
+    if not message.from_user:
+        return
+    super_user = await ensure_superadmin_user(message.from_user)
+    if not super_user:
+        await message.answer("⛔ Sizda Superadmin paneliga kirish huquqi mavjud emas.")
+        return
+
+    await message.answer(
+        "👑 <b>Carenda Superadmin Paneli</b>\n\n"
+        "Arendatorlarni nazorat qilish, hisoblarni muzlatish, obunalarni faollashtirish va "
+        "tarif/Paynet sozlamalarini boshqarish uchun quyidagi tugmani bosing:",
+        parse_mode="HTML",
+        reply_markup=get_superadmin_inline_keyboard(),
     )
 
 
@@ -935,6 +1030,15 @@ async def handle_subscription_info(message: Message):
     )
 
 
+def _is_bot_admin(admin_tg_id: int) -> bool:
+    if is_superadmin_telegram_id(admin_tg_id):
+        return True
+    return (
+        User.objects.filter(telegram_id=admin_tg_id, role=User.RoleChoices.SUPERADMIN).exists()
+        or User.objects.filter(telegram_id=admin_tg_id, is_superuser=True).exists()
+    )
+
+
 @router.callback_query(F.data.startswith("sub_approve:"))
 async def handle_sub_approve_callback(callback: CallbackQuery):
     if not callback.from_user:
@@ -951,17 +1055,10 @@ async def handle_sub_approve_callback(callback: CallbackQuery):
 
     @sync_to_async
     def do_approve():
-        from apps.users.models import SubscriptionRequest, User
+        from apps.users.models import SubscriptionRequest
         from apps.users.services import process_subscription_approval
 
-        cfg_admin_id = getattr(settings, "ADMIN_TELEGRAM_ID", None)
-        is_cfg_admin = cfg_admin_id and cfg_admin_id == admin_tg_id
-        is_db_admin = User.objects.filter(
-            telegram_id=admin_tg_id,
-            role=User.RoleChoices.SUPERADMIN,
-        ).exists() or User.objects.filter(telegram_id=admin_tg_id, is_superuser=True).exists()
-
-        if not (is_cfg_admin or is_db_admin):
+        if not _is_bot_admin(admin_tg_id):
             return "NO_PERMISSION", None
 
         try:
@@ -1021,17 +1118,10 @@ async def handle_sub_reject_callback(callback: CallbackQuery):
 
     @sync_to_async
     def do_reject():
-        from apps.users.models import SubscriptionRequest, User
+        from apps.users.models import SubscriptionRequest
         from apps.users.services import process_subscription_rejection
 
-        cfg_admin_id = getattr(settings, "ADMIN_TELEGRAM_ID", None)
-        is_cfg_admin = cfg_admin_id and cfg_admin_id == admin_tg_id
-        is_db_admin = User.objects.filter(
-            telegram_id=admin_tg_id,
-            role=User.RoleChoices.SUPERADMIN,
-        ).exists() or User.objects.filter(telegram_id=admin_tg_id, is_superuser=True).exists()
-
-        if not (is_cfg_admin or is_db_admin):
+        if not _is_bot_admin(admin_tg_id):
             return "NO_PERMISSION", None
 
         try:

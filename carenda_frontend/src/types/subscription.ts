@@ -17,6 +17,7 @@ export type PaymentSettings = SubscriptionSettings;
 
 export interface SubscriptionRequest {
   id: number;
+  user_id?: number;
   plan_type: "standard" | "pro" | string;
   plan_display: string;
   amount: number;
@@ -26,8 +27,49 @@ export interface SubscriptionRequest {
   admin_note: string;
   user_name: string;
   user_phone: string;
+  user_username?: string | null;
+  user_tenant_code?: string | null;
   created_at: string;
   reviewed_at: string | null;
+}
+
+export interface SuperadminKpi {
+  total: number;
+  standard: number;
+  free: number;
+  expired: number;
+  frozen: number;
+  pending_requests: number;
+}
+
+export interface SuperadminArendatorItem {
+  id: number;
+  telegram_id: number | null;
+  username: string | null;
+  full_name: string;
+  phone: string;
+  tenant_code: string | null;
+  plan: "free" | "standard" | string;
+  plan_label: string;
+  cars_limit: number;
+  cars_count: number;
+  active_contracts_count: number;
+  is_frozen: boolean;
+  is_superuser: boolean;
+  is_onboarded: boolean;
+  is_subscription_active: boolean;
+  status_category: "standard" | "free" | "expired" | "frozen";
+  days_delta: number;
+  date_joined: string;
+  trial_ends_at: string | null;
+  subscription_expires_at: string | null;
+  expires_at: string | null;
+  expires_date: string | null;
+}
+
+export interface SuperadminArendatorsResponse {
+  kpi: SuperadminKpi;
+  arendators: SuperadminArendatorItem[];
 }
 
 export interface SubscriptionStatusResponse {

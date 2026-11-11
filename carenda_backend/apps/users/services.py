@@ -9,29 +9,17 @@ from apps.users.models import SubscriptionRequest, User
 logger = logging.getLogger(__name__)
 
 
-def process_subscription_approval(
-    sub_request: SubscriptionRequest,
-    reviewer_label: str = "Admin",
-) -> bool:
+def grant_arendator_subscription(
+    user: User,
+    days: int = 30,
+    plan_type: str = "standard",
+    notify: bool = True,
+) -> User:
     """
-    Approves a pending subscription request:
-    1. Sets sub_request.status = 'approved'
-    2. Updates user plan: 'standard' or 'pro'
-    3. Sets user.cars_limit: 15 for standard, 9999 for pro
-    4. Extends user.expires_at by 30 days
-    5. Clears cache
-    6. Sends confirmation message to user via Telegram Bot
+    Upgrades/extends an Arendator's subscription to Standart for `days` days,
+    unfreezes the account, clears tenant caches, and sends a Telegram confirmation message.
     """
-    if sub_request.status != SubscriptionRequest.Status.PENDING:
-        return False
-
-    sub_request.status = SubscriptionRequest.Status.APPROVED
-    sub_request.reviewed_at = timezone.now()
-    sub_request.admin_note = f"Tasdiqladi: {reviewer_label}"
-    sub_request.save(update_fields=["status", "reviewed_at", "admin_note"])
-
-    user = sub_request.user
-    user.plan = sub_request.plan_type if sub_request.plan_type in ("pro", "standard") else "standard"
+    user.plan = plan_type if plan_type in ("pro", "standard") else "standard"
     user.cars_limit = 9999
     user.is_frozen = False
 
@@ -41,26 +29,25 @@ def process_subscription_approval(
         if (user.subscription_expires_at and user.subscription_expires_at > now)
         else (user.expires_at if (user.expires_at and user.expires_at > now) else now)
     )
-    new_expires = base_time + timedelta(days=30)
+    new_expires = base_time + timedelta(days=days)
     user.subscription_expires_at = new_expires
     user.expires_at = new_expires
     user.save(update_fields=["plan", "cars_limit", "is_frozen", "subscription_expires_at", "expires_at"])
 
     invalidate_tenant_cache(user.id, user.telegram_id)
 
-    # Deliver Telegram notification to user
-    if user.telegram_id:
+    if notify and user.telegram_id:
         bot_token = getattr(settings, "TELEGRAM_BOT_TOKEN", None)
         if bot_token and bot_token != "dev_bot_token_123456":
             import asyncio
             from aiogram import Bot
             from apps.bot.handlers import get_miniapp_inline_keyboard
 
-            plan_name = sub_request.get_plan_type_display()
+            plan_name = "Standart" if user.plan == "standard" else "Pro (Premium)"
             expires_str = timezone.localtime(user.expires_at).strftime("%d.%m.%Y")
             msg = (
                 f"🎉 <b>Tabriklaymiz!</b>\n\n"
-                f"Sizning <b>{plan_name}</b> obunangiz <b>30 kunga</b> faollashtirildi!\n"
+                f"Sizning <b>{plan_name}</b> obunangiz <b>{days} kunga</b> faollashtirildi!\n"
                 f"⏳ Yangi amal qilish muddati: <b>{expires_str}</b> gacha.\n\n"
                 f"<i>Carenda xizmatidan foydalanganingiz uchun rahmat!</i>"
             )
@@ -80,8 +67,34 @@ def process_subscription_approval(
             try:
                 asyncio.run(_send())
             except Exception as e:
-                logger.warning("Failed to notify user of subscription approval: %s", e)
+                logger.warning("Failed to notify user of subscription grant: %s", e)
 
+    return user
+
+
+def process_subscription_approval(
+    sub_request: SubscriptionRequest,
+    reviewer_label: str = "Admin",
+) -> bool:
+    """
+    Approves a pending subscription request:
+    1. Sets sub_request.status = 'approved'
+    2. Grants/extends Standart subscription via grant_arendator_subscription
+    """
+    if sub_request.status != SubscriptionRequest.Status.PENDING:
+        return False
+
+    sub_request.status = SubscriptionRequest.Status.APPROVED
+    sub_request.reviewed_at = timezone.now()
+    sub_request.admin_note = f"Tasdiqladi: {reviewer_label}"
+    sub_request.save(update_fields=["status", "reviewed_at", "admin_note"])
+
+    grant_arendator_subscription(
+        user=sub_request.user,
+        days=30,
+        plan_type=sub_request.plan_type,
+        notify=True,
+    )
     return True
 
 

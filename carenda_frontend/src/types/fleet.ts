@@ -13,6 +13,8 @@ export interface User {
   invite_code?: string | null;
   is_registered?: boolean;
   is_onboarded?: boolean;
+  is_superuser?: boolean;
+  is_superadmin?: boolean;
   parent_owner?: number | null;
   parent_owner_name?: string | null;
   linked_arendator?: number | null;

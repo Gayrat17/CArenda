@@ -52,3 +52,17 @@ class IsIjarachi(BasePermission):
             return True
         role = (getattr(user, "role", "") or "").lower()
         return role in (User.RoleChoices.IJARACHI, User.RoleChoices.USER)
+
+
+class IsSuperAdmin(BasePermission):
+    """
+    Allows access ONLY to Superadmins (is_superuser=True, role='superadmin',
+    or telegram_id in SUPERADMIN_TELEGRAM_IDS / ADMIN_TELEGRAM_ID).
+    """
+    message = "Ushbu bo'lim faqat Superadmin uchun mo'ljallangan."
+
+    def has_permission(self, request, view):
+        user = getattr(request, "user", None)
+        if not user or not user.is_authenticated:
+            return False
+        return bool(getattr(user, "is_superadmin", False))

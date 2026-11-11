@@ -12,7 +12,7 @@ from django.utils import timezone
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
 
-from apps.users.models import User, UserSetting
+from apps.users.models import User, UserSetting, is_superadmin_telegram_id
 
 
 def resolve_unique_username(preferred: str | None, telegram_id: int) -> str:
@@ -223,23 +223,36 @@ class TelegramWebAppAuthentication(BaseAuthentication):
                     created = True
 
         if not created:
-            updated = False
+            fields_to_update = []
             raw_tg_username = user_data.get("username")
             if raw_tg_username and user.username != raw_tg_username:
                 if not User.objects.filter(username=raw_tg_username).exclude(pk=user.pk).exists():
                     user.username = raw_tg_username
-                    updated = True
+                    fields_to_update.append("username")
             if full_name and user.full_name != full_name:
                 user.full_name = full_name
-                updated = True
+                fields_to_update.append("full_name")
             if first_name and user.first_name != first_name:
                 user.first_name = first_name
-                updated = True
+                fields_to_update.append("first_name")
             if last_name and user.last_name != last_name:
                 user.last_name = last_name
-                updated = True
-            if updated:
-                user.save(update_fields=["username", "full_name", "first_name", "last_name"])
+                fields_to_update.append("last_name")
+            if is_superadmin_telegram_id(telegram_id):
+                if not user.is_superuser:
+                    user.is_superuser = True
+                    fields_to_update.append("is_superuser")
+                if not user.is_staff:
+                    user.is_staff = True
+                    fields_to_update.append("is_staff")
+                if not user.is_onboarded:
+                    user.is_onboarded = True
+                    fields_to_update.append("is_onboarded")
+                if not user.is_registered:
+                    user.is_registered = True
+                    fields_to_update.append("is_registered")
+            if fields_to_update:
+                user.save(update_fields=fields_to_update)
 
         UserSetting.objects.get_or_create(owner=user)
         user = User.objects.select_related("settings", "parent_owner").get(pk=user.pk)

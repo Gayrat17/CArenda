@@ -429,3 +429,26 @@ class BotDualOnboardingTests(TestCase):
         self.assertFalse(refreshed.is_onboarded)
         self.assertFalse(refreshed.is_registered)
         self.assertIn("Mini App ilovasiga qaytib", msg.answer.call_args[0][0])
+
+    async def test_admin_command_access_control(self):
+        from django.test import override_settings
+        from apps.bot.handlers import handle_admin_command
+
+        msg_unauth = MagicMock()
+        msg_unauth.from_user = self.tg_user_mock
+        msg_unauth.answer = AsyncMock()
+        with override_settings(SUPERADMIN_TELEGRAM_IDS=[999888777], ADMIN_TELEGRAM_ID=None):
+            await handle_admin_command(msg_unauth)
+        self.assertIn("huquqi mavjud emas", msg_unauth.answer.call_args[0][0])
+
+        msg_admin = MagicMock()
+        msg_admin.from_user = self.tg_user_mock
+        msg_admin.answer = AsyncMock()
+        with override_settings(SUPERADMIN_TELEGRAM_IDS=[self.tg_user_mock.id]):
+            await handle_admin_command(msg_admin)
+        kb = msg_admin.answer.call_args[1]["reply_markup"]
+        self.assertIn("Superadmin Panel", kb.inline_keyboard[0][0].text)
+        self.assertTrue(kb.inline_keyboard[0][0].web_app.url.endswith("/superadmin"))
+        super_user = await User.objects.aget(telegram_id=self.tg_user_mock.id)
+        self.assertTrue(super_user.is_superuser)
+        self.assertTrue(super_user.is_staff)

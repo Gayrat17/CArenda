@@ -659,4 +659,89 @@ export async function completeOnboarding(
   return result;
 }
 
+// Superadmin APIs
+export async function getSuperadminArendators(params?: {
+  search?: string;
+  filter?: string;
+  forceRefresh?: boolean;
+}): Promise<import("@/types/subscription").SuperadminArendatorsResponse> {
+  const qs = new URLSearchParams();
+  if (params?.search) qs.set("search", params.search);
+  if (params?.filter && params.filter !== "all") qs.set("filter", params.filter);
+  const query = qs.toString();
+  const endpoint = query ? `/superadmin/arendators/?${query}` : "/superadmin/arendators/";
+  return apiFetch<import("@/types/subscription").SuperadminArendatorsResponse>(endpoint, {
+    forceRefresh: params?.forceRefresh ?? true,
+  });
+}
+
+export async function toggleArendatorFreeze(
+  id: number
+): Promise<{ detail: string; arendator: import("@/types/subscription").SuperadminArendatorItem }> {
+  return apiFetch<{ detail: string; arendator: import("@/types/subscription").SuperadminArendatorItem }>(
+    `/superadmin/arendators/${id}/toggle-freeze/`,
+    {
+      method: "POST",
+      body: JSON.stringify({}),
+    }
+  );
+}
+
+export async function grantArendatorSubscription(
+  id: number,
+  days = 30
+): Promise<{ detail: string; arendator: import("@/types/subscription").SuperadminArendatorItem }> {
+  return apiFetch<{ detail: string; arendator: import("@/types/subscription").SuperadminArendatorItem }>(
+    `/superadmin/arendators/${id}/grant-subscription/`,
+    {
+      method: "POST",
+      body: JSON.stringify({ days }),
+    }
+  );
+}
+
+export async function getSuperadminSettings(): Promise<import("@/types/subscription").SubscriptionSettings> {
+  return apiFetch<import("@/types/subscription").SubscriptionSettings>("/superadmin/settings/", {
+    forceRefresh: true,
+  });
+}
+
+export async function updateSuperadminSettings(
+  payload: FormData | Record<string, unknown>
+): Promise<import("@/types/subscription").SubscriptionSettings> {
+  const isFormData = typeof FormData !== "undefined" && payload instanceof FormData;
+  return apiFetch<import("@/types/subscription").SubscriptionSettings>("/superadmin/settings/", {
+    method: "PATCH",
+    body: isFormData ? payload : JSON.stringify(payload),
+  });
+}
+
+export async function getSuperadminRequests(
+  statusFilter: "pending" | "approved" | "rejected" | "all" = "pending"
+): Promise<import("@/types/subscription").SubscriptionRequest[]> {
+  return apiFetch<import("@/types/subscription").SubscriptionRequest[]>(
+    `/superadmin/requests/?status=${statusFilter}`,
+    { forceRefresh: true }
+  );
+}
+
+export async function approveSuperadminRequest(
+  id: number
+): Promise<{ detail: string; request: import("@/types/subscription").SubscriptionRequest }> {
+  return apiFetch<{ detail: string; request: import("@/types/subscription").SubscriptionRequest }>(
+    `/superadmin/requests/${id}/approve/`,
+    { method: "POST", body: JSON.stringify({}) }
+  );
+}
+
+export async function rejectSuperadminRequest(
+  id: number,
+  reason = ""
+): Promise<{ detail: string; request: import("@/types/subscription").SubscriptionRequest }> {
+  return apiFetch<{ detail: string; request: import("@/types/subscription").SubscriptionRequest }>(
+    `/superadmin/requests/${id}/reject/`,
+    { method: "POST", body: JSON.stringify({ reason }) }
+  );
+}
+
 

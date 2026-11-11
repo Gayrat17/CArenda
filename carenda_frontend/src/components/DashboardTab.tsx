@@ -20,6 +20,8 @@ import {
   Calendar,
   FileText,
   ChevronRight,
+  Crown,
+  Zap,
 } from "lucide-react";
 import {
   DashboardResponse,
@@ -180,8 +182,8 @@ export function DashboardTab({
             </div>
           </div>
 
-          {/* Subscription Badge */}
-          <div className="flex flex-col items-end gap-0.5 shrink-0">
+          {/* Subscription Badge + Superadmin Switcher */}
+          <div className="flex flex-col items-end gap-1 shrink-0">
             <button
               type="button"
               onClick={() => router.push("/subscription")}
@@ -208,9 +210,51 @@ export function DashboardTab({
                 ? `${dashboard?.active_contracts_count || 0} ta (Cheksiz)`
                 : `${dashboard?.active_contracts_count || 0} / 3 shartnoma`}
             </span>
+            {(user?.is_superuser || user?.is_superadmin || user?.role === "superadmin") && (
+              <button
+                type="button"
+                onClick={() => router.push("/superadmin")}
+                className="mt-0.5 inline-flex items-center gap-1 px-2.5 py-1 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-bold text-[10px] rounded-full shadow-xs transition active:scale-95 cursor-pointer"
+                title="Superadmin Panelni ochish"
+              >
+                <Crown className="w-3 h-3" />
+                <span>Superadmin</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
+
+      {/* Urgent Frozen / Expired Subscription Enforcement Banner */}
+      {user && (user.is_frozen || user.is_subscription_active === false) && (
+        <div
+          onClick={() => router.push("/subscription")}
+          className="bg-gradient-to-r from-rose-600 to-red-600 text-white p-4 rounded-2xl shadow-md space-y-2.5 cursor-pointer hover:brightness-105 transition"
+        >
+          <div className="flex items-start gap-3">
+            <div className="p-2 bg-white/20 rounded-xl shrink-0">
+              <AlertCircle className="w-5 h-5 text-white" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h3 className="font-bold text-sm">
+                {user.is_frozen ? "❄️ Hisobingiz muzlatilgan" : "⚠️ Obuna muddati tugagan"}
+              </h3>
+              <p className="text-xs text-rose-100 mt-0.5 leading-relaxed">
+                {user.is_frozen
+                  ? "Yangi shartnoma tuzish va tahrirlash vaqtincha cheklangan. Paynet orqali to'lov qilib faollashtiring."
+                  : "Free sinov yoki Standart obuna muddatingiz tugadi. Davom etish uchun Standart tarifga o'ting."}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center justify-end">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white text-rose-700 font-bold text-xs rounded-xl shadow-xs">
+              <Zap className="w-3.5 h-3.5" />
+              <span>Obunani faollashtirish</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Skeletons while initial dashboard data is loading */}
       {!dashboard ? (

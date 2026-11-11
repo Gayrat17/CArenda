@@ -25,6 +25,8 @@ class UserMeSerializer(serializers.ModelSerializer):
     subscription_expires_at = serializers.SerializerMethodField()
     is_frozen = serializers.SerializerMethodField()
     remaining_days = serializers.SerializerMethodField()
+    is_superuser = serializers.BooleanField(read_only=True)
+    is_superadmin = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -36,6 +38,8 @@ class UserMeSerializer(serializers.ModelSerializer):
             "phone",
             "phone_number",
             "role",
+            "is_superuser",
+            "is_superadmin",
             "tenant_code",
             "invite_code",
             "is_registered",
@@ -114,6 +118,9 @@ class UserMeSerializer(serializers.ModelSerializer):
         if not target or now > target:
             return 0
         return max(0, (target - now).days)
+
+    def get_is_superadmin(self, obj: User) -> bool:
+        return bool(obj.is_superadmin)
 
 
 class UserMeUpdateSerializer(serializers.Serializer):
@@ -203,8 +210,11 @@ class SubscriptionRequestCreateSerializer(serializers.ModelSerializer):
 
 
 class SubscriptionRequestSerializer(serializers.ModelSerializer):
+    user_id = serializers.IntegerField(source="user.id", read_only=True)
     user_name = serializers.CharField(source="user.full_name", read_only=True)
     user_phone = serializers.CharField(source="user.phone", read_only=True)
+    user_username = serializers.CharField(source="user.username", read_only=True)
+    user_tenant_code = serializers.CharField(source="user.tenant_code", read_only=True)
     plan_display = serializers.CharField(source="get_plan_type_display", read_only=True)
     status_display = serializers.CharField(source="get_status_display", read_only=True)
 
@@ -212,6 +222,7 @@ class SubscriptionRequestSerializer(serializers.ModelSerializer):
         model = SubscriptionRequest
         fields = [
             "id",
+            "user_id",
             "plan_type",
             "plan_display",
             "amount",
@@ -221,6 +232,91 @@ class SubscriptionRequestSerializer(serializers.ModelSerializer):
             "admin_note",
             "user_name",
             "user_phone",
+            "user_username",
+            "user_tenant_code",
             "created_at",
             "reviewed_at",
         ]
+
+
+class SuperadminArendatorSerializer(serializers.ModelSerializer):
+    username = serializers.SerializerMethodField()
+    plan = serializers.SerializerMethodField()
+    plan_label = serializers.SerializerMethodField()
+    cars_count = serializers.SerializerMethodField()
+    active_contracts_count = serializers.SerializerMethodField()
+    is_subscription_active = serializers.SerializerMethodField()
+    status_category = serializers.SerializerMethodField()
+    days_delta = serializers.SerializerMethodField()
+    expires_date = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "telegram_id",
+            "username",
+            "full_name",
+            "phone",
+            "tenant_code",
+            "plan",
+            "plan_label",
+            "cars_limit",
+            "cars_count",
+            "active_contracts_count",
+            "is_frozen",
+            "is_superuser",
+            "is_onboarded",
+            "is_subscription_active",
+            "status_category",
+            "days_delta",
+            "date_joined",
+            "trial_ends_at",
+            "subscription_expires_at",
+            "expires_at",
+            "expires_date",
+        ]
+
+    def get_username(self, obj: User) -> str | None:
+        if obj.username and not obj.username.startswith("tg_"):
+            return obj.username.lstrip("@")
+        return None
+
+    def get_plan(self, obj: User) -> str:
+        p = (obj.plan or "free").lower()
+        return "standard" if p in ("standard", "basic", "pro") else "free"
+
+    def get_plan_label(self, obj: User) -> str:
+        return "Standart" if self.get_plan(obj) == "standard" else "Free (Sinov)"
+
+    def get_cars_count(self, obj: User) -> int:
+        val = getattr(obj, "annotated_cars_count", None)
+        return val if val is not None else obj.cars.count()
+
+    def get_active_contracts_count(self, obj: User) -> int:
+        val = getattr(obj, "annotated_active_contracts", None)
+        return val if val is not None else obj.contracts.filter(is_active=True).count()
+
+    def get_is_subscription_active(self, obj: User) -> bool:
+        return obj.is_subscription_active
+
+    def get_expires_date(self, obj: User):
+        p = self.get_plan(obj)
+        if p == "standard":
+            return obj.subscription_expires_at or obj.expires_at
+        return obj.trial_ends_at or obj.expires_at
+
+    def get_status_category(self, obj: User) -> str:
+        if obj.is_frozen:
+            return "frozen"
+        if not obj.is_subscription_active:
+            return "expired"
+        return self.get_plan(obj)
+
+    def get_days_delta(self, obj: User) -> int:
+        from django.utils import timezone
+        target = self.get_expires_date(obj)
+        if not target:
+            return 0
+        delta = (target - timezone.now()).days
+        return delta

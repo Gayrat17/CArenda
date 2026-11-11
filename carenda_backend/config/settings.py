@@ -221,6 +221,20 @@ MEDIA_ROOT = BASE_DIR / 'media'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+def _parse_int_list(raw_val: str | None) -> list[int]:
+    if not raw_val:
+        return []
+    ids: list[int] = []
+    for part in str(raw_val).split(","):
+        part = part.strip()
+        if part:
+            try:
+                ids.append(int(part))
+            except (ValueError, TypeError):
+                pass
+    return ids
+
+
 # Telegram Mini App Configuration
 TELEGRAM_BOT_TOKEN = config(
     "BOT_TOKEN",
@@ -228,6 +242,11 @@ TELEGRAM_BOT_TOKEN = config(
 )
 WEBAPP_URL = config("WEBAPP_URL", default="http://localhost:3000")
 ADMIN_TELEGRAM_ID = config('ADMIN_TELEGRAM_ID', default=None, cast=lambda v: int(v) if v else None)
+SUPERADMIN_TELEGRAM_IDS = _parse_int_list(config('SUPERADMIN_TELEGRAM_IDS', default=''))
+if not SUPERADMIN_TELEGRAM_IDS and ADMIN_TELEGRAM_ID:
+    SUPERADMIN_TELEGRAM_IDS = [ADMIN_TELEGRAM_ID]
+elif ADMIN_TELEGRAM_ID and ADMIN_TELEGRAM_ID not in SUPERADMIN_TELEGRAM_IDS:
+    SUPERADMIN_TELEGRAM_IDS.append(ADMIN_TELEGRAM_ID)
 
 # Payment Defaults / Fallbacks from Environment
 DEFAULT_PAYNET_URL = config('NEXT_PUBLIC_PAYNET_P2P_URL', default='')
