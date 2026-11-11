@@ -308,3 +308,95 @@ class BotDualOnboardingTests(TestCase):
             "To'lov jadvalimni ko'rish",
             client_miniapp_kb.inline_keyboard[0][0].text,
         )
+        self.assertTrue(client_miniapp_kb.inline_keyboard[0][0].web_app.url.endswith("/client"))
+
+    async def test_contract_code_ijarachi_onboarding_and_fallbacks(self):
+        from decimal import Decimal
+        from django.utils import timezone
+        from asgiref.sync import sync_to_async
+        from apps.fleet.models import Car
+        from apps.fleet.services import create_contract_service
+        from apps.bot.handlers import handle_fallback_text, handle_user_phone_non_contact
+
+        owner = await User.objects.acreate(
+            username="owner_contract_test",
+            full_name="Contract Arendator",
+            phone="+998901112200",
+            role=User.RoleChoices.ARENDATOR,
+            tenant_code="AR-9999",
+            is_registered=True,
+        )
+        car = await Car.objects.acreate(
+            owner=owner,
+            name="Gentra",
+            plate_number="01G777GG",
+            default_price=Decimal("15000.00"),
+            status=Car.Status.AVAILABLE,
+        )
+        driver = await Driver.objects.acreate(
+            owner=owner,
+            full_name="Sardor Client",
+            phone="+998901239988",
+        )
+        contract = await sync_to_async(create_contract_service)(
+            owner=owner,
+            car=car,
+            driver=driver,
+            car_price=Decimal("15000.00"),
+            initial_payment=Decimal("3000.00"),
+            annual_percent=Decimal("20.00"),
+            months_count=12,
+            payment_day=10,
+            start_date=timezone.localdate(),
+        )
+
+        # Even if user sends code directly without prior state (fallback handler catches it)
+        state = MockFSMContext()
+        msg_code = MagicMock()
+        msg_code.from_user = self.tg_user_mock
+        msg_code.text = contract.invite_code
+        msg_code.answer = AsyncMock()
+
+        await handle_fallback_text(msg_code, state)
+        self.assertEqual(
+            await state.get_state(),
+            RegistrationStates.waiting_for_user_phone.state,
+        )
+        reply_text = msg_code.answer.call_args[0][0]
+        self.assertIn("Kod tasdiqlandi", reply_text)
+        self.assertIn("Gentra", reply_text)
+
+        # Typing text instead of pressing contact button reminds politely
+        msg_text_phone = MagicMock()
+        msg_text_phone.from_user = self.tg_user_mock
+        msg_text_phone.text = "+998901239988"
+        msg_text_phone.answer = AsyncMock()
+        await handle_user_phone_non_contact(msg_text_phone)
+        self.assertIn("tugmasini bosing", msg_text_phone.answer.call_args[0][0])
+
+        # Sending someone else's contact card is rejected
+        bad_contact = MagicMock()
+        bad_contact.user_id = 999999999  # Different user
+        bad_contact.phone_number = "998901239988"
+        msg_bad_contact = MagicMock()
+        msg_bad_contact.from_user = self.tg_user_mock
+        msg_bad_contact.contact = bad_contact
+        msg_bad_contact.answer = AsyncMock()
+        await handle_user_contact(msg_bad_contact, state)
+        self.assertIn("o'zingizning telefon raqamingizni", msg_bad_contact.answer.call_args[0][0])
+
+        # Sending own contact completes onboarding cleanly
+        good_contact = MagicMock()
+        good_contact.user_id = self.tg_user_mock.id
+        good_contact.phone_number = "998905556677"
+        msg_good_contact = MagicMock()
+        msg_good_contact.from_user = self.tg_user_mock
+        msg_good_contact.contact = good_contact
+        msg_good_contact.answer = AsyncMock()
+        await handle_user_contact(msg_good_contact, state)
+
+        self.assertIsNone(await state.get_state())
+        self.assertEqual(msg_good_contact.answer.call_count, 2)
+        self.assertIn("Muvaffaqiyatli yakunlandi".lower(), msg_good_contact.answer.call_args_list[0][0][0].lower())
+        kb_call = msg_good_contact.answer.call_args_list[1][1]["reply_markup"]
+        self.assertTrue(kb_call.inline_keyboard[0][0].web_app.url.endswith("/client"))

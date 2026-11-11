@@ -1,3 +1,4 @@
+import logging
 from datetime import timedelta
 
 from aiogram import F, Router
@@ -24,6 +25,7 @@ from apps.fleet.excel import generate_tenant_excel_report
 from apps.fleet.models import Driver, normalize_phone
 from apps.users.models import User, UserSetting
 
+logger = logging.getLogger(__name__)
 router = Router()
 
 
@@ -32,6 +34,12 @@ class RegistrationStates(StatesGroup):
     waiting_for_owner_phone = State()
     waiting_for_tenant_code = State()
     waiting_for_user_phone = State()
+
+
+# Aliases for OnboardingState compatibility
+RegistrationStates.waiting_for_code = RegistrationStates.waiting_for_tenant_code
+RegistrationStates.waiting_for_phone = RegistrationStates.waiting_for_user_phone
+OnboardingState = RegistrationStates
 
 
 def get_role_selection_keyboard() -> ReplyKeyboardMarkup:
@@ -151,45 +159,56 @@ def get_existing_user(user_or_id) -> User | None:
     return user
 
 
+def _normalize_code_variants(raw_code: str) -> list[str]:
+    clean = raw_code.strip().upper().replace(" ", "")
+    variants = [clean]
+    if clean.startswith("AR") and "-" not in clean and len(clean) >= 5:
+        variants.append(f"AR-{clean[2:]}")
+    if clean.startswith("CR") and "-" in clean:
+        variants.append(clean.replace("-", ""))
+    return list(dict.fromkeys(variants))
+
+
 @sync_to_async
 def find_code_target(code: str) -> dict | None:
     if not code:
         return None
-    clean = code.strip().upper()
     from apps.fleet.models import Contract
     from django.db.models import Q
-    contract = (
-        Contract.objects.filter(invite_code__iexact=clean, is_active=True)
-        .select_related("owner", "car", "driver")
-        .first()
-    )
-    if contract:
-        owner = contract.owner
-        return {
-            "type": "contract",
-            "owner": owner,
-            "contract": contract,
-            "contract_id": contract.id,
-            "car_name": contract.car.name if contract.car else None,
-            "plate_number": contract.car.plate_number if contract.car else None,
-            "driver_name": contract.driver.full_name if contract.driver else None,
-            "code": clean,
-        }
-    owner = User.objects.filter(
-        Q(tenant_code__iexact=clean) | Q(invite_code__iexact=clean),
-        role=User.RoleChoices.ARENDATOR,
-    ).first()
-    if owner:
-        return {
-            "type": "arendator",
-            "owner": owner,
-            "contract": None,
-            "contract_id": None,
-            "car_name": None,
-            "plate_number": None,
-            "driver_name": None,
-            "code": clean,
-        }
+
+    for candidate in _normalize_code_variants(code):
+        contract = (
+            Contract.objects.filter(invite_code__iexact=candidate, is_active=True)
+            .select_related("owner", "car", "driver")
+            .first()
+        )
+        if contract:
+            owner = contract.owner
+            return {
+                "type": "contract",
+                "owner": owner,
+                "contract": contract,
+                "contract_id": contract.id,
+                "car_name": contract.car.name if contract.car else None,
+                "plate_number": contract.car.plate_number if contract.car else None,
+                "driver_name": contract.driver.full_name if contract.driver else None,
+                "code": candidate,
+            }
+        owner = User.objects.filter(
+            Q(tenant_code__iexact=candidate) | Q(invite_code__iexact=candidate),
+            role=User.RoleChoices.ARENDATOR,
+        ).first()
+        if owner:
+            return {
+                "type": "arendator",
+                "owner": owner,
+                "contract": None,
+                "contract_id": None,
+                "car_name": None,
+                "plate_number": None,
+                "driver_name": None,
+                "code": candidate,
+            }
     return None
 
 
@@ -417,7 +436,7 @@ async def handle_start(message: Message, state: FSMContext):
     # 1. Already registered user check
     if user and user.is_registered and user.phone:
         await state.clear()
-        if user.role == User.RoleChoices.USER:
+        if user.role in (User.RoleChoices.USER, User.RoleChoices.IJARACHI):
             welcome_text = (
                 f"Assalomu alaykum, <b>{user.full_name}</b>!\n\n"
                 f"Carenda ijarachi kabinetiga xush kelibsiz.\n"
@@ -466,14 +485,18 @@ async def handle_start(message: Message, state: FSMContext):
 
 # --- Flow A: Arendator ---
 
-@router.message(F.text == "🚗 Men Arendatorman")
+@router.message(F.text.func(lambda t: bool(t and "arendator" in t.lower())))
 async def handle_choose_owner(message: Message, state: FSMContext):
-    await state.set_state(RegistrationStates.waiting_for_owner_phone)
-    await message.answer(
-        "Arendator sifatida ro'yxatdan o'tish uchun iltimos, "
-        "pastdagi tugmani bosib telefon raqamingizni yuboring:",
-        reply_markup=get_contact_request_keyboard(),
-    )
+    try:
+        await state.set_state(RegistrationStates.waiting_for_owner_phone)
+        await message.answer(
+            "Arendator sifatida ro'yxatdan o'tish uchun iltimos, "
+            "pastdagi tugmani bosib telefon raqamingizni yuboring:",
+            reply_markup=get_contact_request_keyboard(),
+        )
+    except Exception:
+        logger.exception("Error in handle_choose_owner")
+        await message.answer("Texnik xatolik yuz berdi. Iltimos, /start buyrug'ini bosing.")
 
 
 @router.message(RegistrationStates.waiting_for_owner_phone, F.contact)
@@ -481,35 +504,62 @@ async def handle_owner_contact(message: Message, state: FSMContext):
     if not message.from_user or not message.contact:
         return
 
-    user = await register_owner_user(message.from_user, message.contact.phone_number)
-    await state.clear()
+    try:
+        contact_user_id = getattr(message.contact, "user_id", None)
+        if isinstance(contact_user_id, int) and contact_user_id != message.from_user.id:
+            await message.answer(
+                "⚠️ Iltimos, boshqa birovning emas, o'zingizning telefon raqamingizni yuboring:",
+                reply_markup=get_contact_request_keyboard(),
+            )
+            return
 
-    success_text = (
-        f"Rahmat, <b>{user.full_name}</b>! Siz Arendator sifatida muvaffaqiyatli ro'yxatdan o'tdingiz ✅\n\n"
-        f"🔑 Sizning maxsus kodingiz: <b>{user.tenant_code}</b>\n"
-        f"<i>Ushbu kodni haydovchilaringizga (ijarachilarga) bering, ular tizimga ulanishi uchun kerak bo'ladi.</i>\n\n"
-        f"Quyidagi tugma orqali ilovani ochishingiz mumkin:"
-    )
+        user = await register_owner_user(message.from_user, message.contact.phone_number)
+        await state.clear()
+
+        success_text = (
+            f"Rahmat, <b>{user.full_name}</b>! Siz Arendator sifatida muvaffaqiyatli ro'yxatdan o'tdingiz ✅\n\n"
+            f"🔑 Sizning maxsus kodingiz: <b>{user.tenant_code}</b>\n"
+            f"<i>Ushbu kodni haydovchilaringizga (ijarachilarga) bering, ular tizimga ulanishi uchun kerak bo'ladi.</i>\n\n"
+            f"Quyidagi tugma orqali ilovani ochishingiz mumkin:"
+        )
+        await message.answer(
+            success_text,
+            parse_mode="HTML",
+            reply_markup=get_main_reply_keyboard(),
+        )
+        await message.answer(
+            "Mini App'ni ochish:",
+            reply_markup=get_miniapp_inline_keyboard(),
+        )
+    except Exception:
+        logger.exception("Error in handle_owner_contact")
+        await message.answer("Texnik xatolik yuz berdi. Iltimos, /start buyrug'ini bosing.")
+
+
+@router.message(RegistrationStates.waiting_for_owner_phone)
+async def handle_owner_phone_non_contact(message: Message):
     await message.answer(
-        success_text,
+        "📱 Iltimos, telefon raqamingizni qo'lda yozmasdan, pastdagi <b>«📞 Telefon raqamni yuborish»</b> tugmasini bosing:",
         parse_mode="HTML",
-        reply_markup=get_main_reply_keyboard(),
-    )
-    await message.answer(
-        "Mini App'ni ochish:",
-        reply_markup=get_miniapp_inline_keyboard(),
+        reply_markup=get_contact_request_keyboard(),
     )
 
 
 # --- Flow B: User (Driver / Ijarachi) ---
 
-@router.message(F.text.in_(["👤 Men Foydalanuvchiman (Ijarachi)", "👤 Men Ijarachiman (Mijoz)"]))
+@router.message(
+    F.text.func(lambda t: bool(t and ("ijarachi" in t.lower() or "foydalanuvchiman" in t.lower())))
+)
 async def handle_choose_user(message: Message, state: FSMContext):
-    await state.set_state(RegistrationStates.waiting_for_tenant_code)
-    await message.answer(
-        "Arendatoringiz bergan maxsus kodni kiriting (masalan: AR-4829):",
-        reply_markup=ReplyKeyboardRemove(),
-    )
+    try:
+        await state.set_state(RegistrationStates.waiting_for_tenant_code)
+        await message.answer(
+            "🔑 Iltimos, arendatoringiz bergan maxsus kodni kiriting (masalan: AR-4829 yoki CR4829):",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+    except Exception:
+        logger.exception("Error in handle_choose_user")
+        await message.answer("Texnik xatolik yuz berdi. Iltimos, /start buyrug'ini bosing.")
 
 
 handle_choose_client = handle_choose_user
@@ -517,35 +567,47 @@ handle_choose_client = handle_choose_user
 
 @router.message(RegistrationStates.waiting_for_tenant_code, F.text)
 async def handle_user_tenant_code(message: Message, state: FSMContext):
-    code = message.text.strip().upper()
-    target_info = await find_code_target(code)
+    try:
+        code = (message.text or "").strip().upper()
+        if not code:
+            await message.answer(
+                "❌ Iltimos, maxsus kodni matn ko'rinishida kiriting (masalan: AR-4829):"
+            )
+            return
 
-    if not target_info:
-        await message.answer(
-            "❌ Bunday kodli arendator topilmadi. Qaytadan kiriting (masalan: AR-4829):"
+        target_info = await find_code_target(code)
+
+        if not target_info:
+            await message.answer(
+                "❌ Bunday kodli arendator topilmadi! Kiritilgan maxsus kod xato, iltimos tekshirib qaytadan kiriting:"
+            )
+            return
+
+        owner = target_info["owner"]
+        await state.update_data(
+            target_owner_id=owner.id,
+            target_owner_name=owner.full_name or owner.username,
+            target_contract_id=target_info.get("contract_id"),
+            target_code=target_info.get("code") or code,
         )
-        return
+        await state.set_state(RegistrationStates.waiting_for_user_phone)
 
-    owner = target_info["owner"]
-    await state.update_data(
-        target_owner_id=owner.id,
-        target_owner_name=owner.full_name or owner.username,
-        target_contract_id=target_info.get("contract_id"),
-        target_code=code,
-    )
-    await state.set_state(RegistrationStates.waiting_for_user_phone)
+        car_msg = ""
+        if target_info.get("car_name"):
+            plate = f" ({target_info['plate_number']})" if target_info.get("plate_number") else ""
+            car_msg = f"\n🚗 Shartnoma avtomobili: <b>{target_info['car_name']}{plate}</b>"
 
-    car_msg = ""
-    if target_info.get("car_name"):
-        plate = f" ({target_info['plate_number']})" if target_info.get("plate_number") else ""
-        car_msg = f"\n🚗 Shartnoma avtomobili: <b>{target_info['car_name']}{plate}</b>"
-
-    await message.answer(
-        f"✅ Arendator topildi: <b>{owner.full_name or owner.username}</b>!{car_msg}\n\n"
-        f"Endi shaxsingizni tasdiqlash uchun pastdagi tugma orqali telefon raqamingizni yuboring:",
-        parse_mode="HTML",
-        reply_markup=get_contact_request_keyboard(),
-    )
+        await message.answer(
+            f"✅ Kod tasdiqlandi! Arendator: <b>{owner.full_name or owner.username}</b>{car_msg}\n\n"
+            f"Endi tizim va to'lov eslatmalari ishlashi uchun pastdagi tugma orqali telefon raqamingizni yuboring:",
+            parse_mode="HTML",
+            reply_markup=get_contact_request_keyboard(),
+        )
+    except Exception:
+        logger.exception("Error in handle_user_tenant_code")
+        await message.answer(
+            "Texnik xatolik yuz berdi. Iltimos, /start buyrug'ini bosib qaytadan urinib ko'ring."
+        )
 
 
 handle_client_tenant_code = handle_user_tenant_code
@@ -556,55 +618,80 @@ async def handle_user_contact(message: Message, state: FSMContext):
     if not message.from_user or not message.contact:
         return
 
-    data = await state.get_data()
-    target_owner_id = data.get("target_owner_id")
-    target_contract_id = data.get("target_contract_id")
-    target_code = data.get("target_code")
+    try:
+        contact_user_id = getattr(message.contact, "user_id", None)
+        if isinstance(contact_user_id, int) and contact_user_id != message.from_user.id:
+            await message.answer(
+                "⚠️ Iltimos, boshqa birovning emas, o'zingizning telefon raqamingizni pastdagi tugma orqali yuboring:",
+                reply_markup=get_contact_request_keyboard(),
+            )
+            return
 
-    if not target_owner_id:
+        data = await state.get_data()
+        target_owner_id = data.get("target_owner_id")
+        target_contract_id = data.get("target_contract_id")
+        target_code = data.get("target_code")
+
+        if not target_owner_id:
+            await state.clear()
+            await message.answer(
+                "Xatolik yuz berdi. Iltimos, /start buyrug'ini bosib qaytadan boshlang.",
+                reply_markup=ReplyKeyboardRemove(),
+            )
+            return
+
+        raw_phone = message.contact.phone_number
+        user, driver_name = await match_and_register_user_driver(
+            message.from_user,
+            raw_phone,
+            target_owner_id,
+            target_contract_id=target_contract_id,
+            invite_code=target_code,
+        )
+
+        if not user:
+            await state.clear()
+            await message.answer(
+                "🚫 Bazada bunday foydalanuvchi yo'q! "
+                "Avval arendatoringiz sizni o'z tizimiga kiritishi kerak.\n\n"
+                "Boshidan boshlash uchun /start buyrug'ini bosing.",
+                reply_markup=ReplyKeyboardRemove(),
+            )
+            return
+
         await state.clear()
+        success_text = (
+            f"✅ Tasdiqlandi! Xush kelibsiz, <b>{driver_name}</b>.\n\n"
+            f"🎉 Ro'yxatdan o'tish muvaffaqiyatli yakunlandi! "
+            f"Shartnomangiz va to'lovlar jadvalini ko'rish uchun pastdagi tugmani bosing:"
+        )
         await message.answer(
-            "Xatolik yuz berdi. Iltimos, /start buyrug'ini bosib qaytadan boshlang.",
+            success_text,
+            parse_mode="HTML",
             reply_markup=ReplyKeyboardRemove(),
         )
-        return
-
-    raw_phone = message.contact.phone_number
-    user, driver_name = await match_and_register_user_driver(
-        message.from_user,
-        raw_phone,
-        target_owner_id,
-        target_contract_id=target_contract_id,
-        invite_code=target_code,
-    )
-
-    if not user:
-        await state.clear()
         await message.answer(
-            "🚫 Bazada bunday foydalanuvchi yo'q! "
-            "Avval arendatoringiz sizni o'z tizimiga kiritishi kerak.\n\n"
-            "Boshidan boshlash uchun /start buyrug'ini bosing.",
+            "Mijoz kabinetini ochish:",
+            reply_markup=get_client_miniapp_inline_keyboard(),
+        )
+    except Exception:
+        logger.exception("Error in handle_user_contact")
+        await message.answer(
+            "Texnik xatolik yuz berdi. Iltimos, /start buyrug'ini bosib qaytadan urinib ko'ring.",
             reply_markup=ReplyKeyboardRemove(),
         )
-        return
-
-    await state.clear()
-    success_text = (
-        f"✅ Tasdiqlandi! Xush kelibsiz, <b>{driver_name}</b>.\n\n"
-        f"Quyidagi tugma orqali shartnomangiz va to'lovlar jadvalini ko'rishingiz mumkin:"
-    )
-    await message.answer(
-        success_text,
-        parse_mode="HTML",
-        reply_markup=ReplyKeyboardRemove(),
-    )
-    await message.answer(
-        "Mijoz kabinetini ochish:",
-        reply_markup=get_client_miniapp_inline_keyboard(),
-    )
 
 
 handle_client_contact = handle_user_contact
+
+
+@router.message(RegistrationStates.waiting_for_user_phone)
+async def handle_user_phone_non_contact(message: Message):
+    await message.answer(
+        "📱 Iltimos, telefon raqamingizni qo'lda yozmasdan, pastdagi <b>«📞 Telefon raqamni yuborish»</b> tugmasini bosing:",
+        parse_mode="HTML",
+        reply_markup=get_contact_request_keyboard(),
+    )
 
 
 # --- Default Fallback Contact handler ---
@@ -677,7 +764,7 @@ async def handle_overdue_list(message: Message):
         )
         return
 
-    if user.role == User.RoleChoices.USER:
+    if user.role in (User.RoleChoices.USER, User.RoleChoices.IJARACHI):
         await message.answer(
             "Siz foydalanuvchi (ijarachi) maqomidasiz. Ushbu amal faqat arendatorlar uchun mo'ljallangan.",
             reply_markup=get_client_miniapp_inline_keyboard(),
@@ -715,7 +802,7 @@ async def handle_excel_export(message: Message):
         )
         return
 
-    if user.role == User.RoleChoices.USER:
+    if user.role in (User.RoleChoices.USER, User.RoleChoices.IJARACHI):
         await message.answer(
             "Siz foydalanuvchi (ijarachi) maqomidasiz. Excel hisobot faqat arendatorlar uchun mo'ljallangan.",
             reply_markup=get_client_miniapp_inline_keyboard(),
@@ -748,7 +835,7 @@ async def handle_subscription_info(message: Message):
         )
         return
 
-    if user.role == User.RoleChoices.USER:
+    if user.role in (User.RoleChoices.USER, User.RoleChoices.IJARACHI):
         await message.answer(
             f"👤 Foydalanuvchi: <b>{user.full_name}</b>\n\n"
             "Sizning shartnomangiz va to'lov jadvalingiz bilan quyidagi tugma orqali tanishishingiz mumkin:",
@@ -966,3 +1053,42 @@ async def handle_sub_reject_callback(callback: CallbackQuery):
             await callback.message.edit_text(updated_text, parse_mode="HTML", reply_markup=None)
     except Exception:
         pass
+
+
+# --- Catch-All Fallback Handler (Prevents Silent Bot) ---
+
+@router.message(F.text)
+async def handle_fallback_text(message: Message, state: FSMContext):
+    if not message.from_user or not message.text:
+        return
+
+    try:
+        text = message.text.strip()
+        # Check if user pasted a valid invite code directly (e.g. AR-V5WX or CRXUQA)
+        if 4 <= len(text) <= 16 and any(ch.isalnum() for ch in text):
+            target_info = await find_code_target(text)
+            if target_info:
+                await handle_user_tenant_code(message, state)
+                return
+
+        user = await get_existing_user(message.from_user.id)
+        if user and user.is_registered and user.phone:
+            if user.role in (User.RoleChoices.USER, User.RoleChoices.IJARACHI):
+                await message.answer(
+                    "To'lovlar jadvalingiz va shartnomangizni ko'rish uchun pastdagi tugmani bosing:",
+                    reply_markup=get_client_miniapp_inline_keyboard(),
+                )
+            else:
+                await message.answer(
+                    "Boshqaruv panelini ochish uchun pastdagi tugmalardan foydalaning:",
+                    reply_markup=get_miniapp_inline_keyboard(),
+                )
+            return
+
+        await handle_start(message, state)
+    except Exception:
+        logger.exception("Error in handle_fallback_text")
+        await message.answer(
+            "Iltimos, davom etish uchun /start buyrug'ini bosing.",
+            reply_markup=get_role_selection_keyboard(),
+        )

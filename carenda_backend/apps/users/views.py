@@ -342,31 +342,50 @@ class TelegramAuthAPIView(APIView):
         return Response(UserMeSerializer(user).data, status=status.HTTP_200_OK)
 
 
+def _find_contract_or_arendator_by_code(raw_code: str):
+    """Finds an active Contract or Arendator matching the normalized invite code."""
+    clean = str(raw_code or "").strip().upper().replace(" ", "")
+    if not clean:
+        return None, None
+    candidates = [clean]
+    if clean.startswith("AR") and "-" not in clean and len(clean) >= 5:
+        candidates.append(f"AR-{clean[2:]}")
+    if clean.startswith("CR") and "-" in clean:
+        candidates.append(clean.replace("-", ""))
+
+    for code in candidates:
+        contract = (
+            Contract.objects.filter(invite_code__iexact=code, is_active=True)
+            .select_related("owner", "car", "driver")
+            .first()
+        )
+        if contract:
+            return contract, contract.owner
+        arendator = (
+            User.objects.filter(
+                Q(tenant_code__iexact=code) | Q(invite_code__iexact=code),
+                role=User.RoleChoices.ARENDATOR,
+            )
+            .first()
+        )
+        if arendator:
+            return None, arendator
+    return None, None
+
+
 class VerifyInviteCodeAPIView(APIView):
     """
     Verifies a special invite code entered by an Ijarachi/client.
     Accepts: {"code": "CR4829"} (or {"invite_code": "..."}).
     Returns 200 with metadata if valid, or 400 with exact Uzbek error message if invalid.
     """
+    authentication_classes = []
     permission_classes = [AllowAny]
 
     def post(self, request):
-        code = str(request.data.get("code") or request.data.get("invite_code") or "").strip().upper()
-        if not code:
-            return Response(
-                {
-                    "valid": False,
-                    "detail": "Kiritilgan maxsus kod xato! Iltimos, arendatoringizdan to'g'ri kodni so'rang.",
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        raw_code = str(request.data.get("code") or request.data.get("invite_code") or "")
+        contract, arendator = _find_contract_or_arendator_by_code(raw_code)
 
-        # 1. Check Contract invite code
-        contract = (
-            Contract.objects.filter(invite_code__iexact=code, is_active=True)
-            .select_related("owner", "car", "driver")
-            .first()
-        )
         if contract:
             owner_name = contract.owner.full_name or contract.owner.username or "Arendator"
             return Response(
@@ -385,14 +404,6 @@ class VerifyInviteCodeAPIView(APIView):
                 status=status.HTTP_200_OK,
             )
 
-        # 2. Check Arendator user tenant/invite code
-        arendator = (
-            User.objects.filter(
-                Q(tenant_code__iexact=code) | Q(invite_code__iexact=code),
-                role=User.RoleChoices.ARENDATOR,
-            )
-            .first()
-        )
         if arendator:
             owner_name = arendator.full_name or arendator.username or "Arendator"
             return Response(
@@ -458,39 +469,27 @@ class CompleteOnboardingAPIView(APIView):
                 )
 
             # Match contract or arendator
-            contract = (
-                Contract.objects.filter(invite_code__iexact=invite_code, is_active=True)
-                .select_related("owner", "driver")
-                .first()
-            )
-            matched_arendator = None
+            contract, matched_arendator = _find_contract_or_arendator_by_code(invite_code)
+            if not matched_arendator:
+                return Response(
+                    {
+                        "valid": False,
+                        "detail": "Kiritilgan maxsus kod xato! Iltimos, arendatoringizdan to'g'ri kodni so'rang.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            user.linked_arendator = matched_arendator
+            user.parent_owner = matched_arendator
             if contract:
-                matched_arendator = contract.owner
-                user.linked_arendator = contract.owner
-                user.parent_owner = contract.owner
                 if contract.driver:
                     contract.driver.user = user
                     if not contract.driver.phone:
                         contract.driver.phone = formatted_phone
                     contract.driver.save(update_fields=["user", "phone"])
+                if not User.objects.filter(invite_code__iexact=contract.invite_code).exclude(pk=user.pk).exists():
+                    user.invite_code = contract.invite_code
             else:
-                matched_arendator = (
-                    User.objects.filter(
-                        Q(tenant_code__iexact=invite_code) | Q(invite_code__iexact=invite_code),
-                        role=User.RoleChoices.ARENDATOR,
-                    )
-                    .first()
-                )
-                if not matched_arendator:
-                    return Response(
-                        {
-                            "valid": False,
-                            "detail": "Kiritilgan maxsus kod xato! Iltimos, arendatoringizdan to'g'ri kodni so'rang.",
-                        },
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                user.linked_arendator = matched_arendator
-                user.parent_owner = matched_arendator
                 # Link matching driver under this arendator
                 matched_d = None
                 for d in matched_arendator.drivers.all():
@@ -509,7 +508,6 @@ class CompleteOnboardingAPIView(APIView):
                             break
 
             user.role = User.RoleChoices.IJARACHI
-            user.invite_code = invite_code
 
         else: # Arendator
             user.role = User.RoleChoices.ARENDATOR

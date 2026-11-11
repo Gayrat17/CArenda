@@ -2,6 +2,7 @@ import asyncio
 import logging
 
 from aiogram import Bot, Dispatcher
+from aiogram.fsm.storage.memory import MemoryStorage
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from django.conf import settings
 from django.core.management.base import BaseCommand
@@ -10,6 +11,20 @@ from apps.bot.handlers import router
 from apps.bot.services import send_daily_overdue_notifications
 
 logger = logging.getLogger(__name__)
+
+
+def get_fsm_storage():
+    """Uses persistent RedisStorage when Redis is online, falling back to MemoryStorage."""
+    if getattr(settings, "REDIS_ONLINE", False):
+        try:
+            from aiogram.fsm.storage.redis import RedisStorage
+            redis_url = getattr(settings, "REDIS_URL", "redis://127.0.0.1:6379/0")
+            storage = RedisStorage.from_url(redis_url)
+            logger.info("Bot FSM storage initialized with RedisStorage (%s).", redis_url)
+            return storage
+        except Exception as e:
+            logger.warning("Failed to initialize RedisStorage (%s), falling back to MemoryStorage.", e)
+    return MemoryStorage()
 
 
 async def main():
@@ -23,8 +38,13 @@ async def main():
         )
 
     bot = Bot(token=bot_token)
-    dp = Dispatcher()
+    dp = Dispatcher(storage=get_fsm_storage())
     dp.include_router(router)
+
+    try:
+        await bot.delete_webhook(drop_pending_updates=False)
+    except Exception as e:
+        logger.warning("Could not delete webhook before polling: %s", e)
 
     # Initialize APScheduler for daily 09:00 alerts in Tashkent timezone
     scheduler = AsyncIOScheduler(timezone="Asia/Tashkent")

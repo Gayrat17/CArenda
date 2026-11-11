@@ -81,7 +81,7 @@ export default function LoginPage() {
   }, [router]);
 
   // Handle Verify Code
-  const handleVerifyCode = async () => {
+  const handleVerifyCode = async (advanceOnSuccess = false) => {
     const cleanCode = inviteCode.trim().toUpperCase();
     if (!cleanCode) {
       setCodeError("Iltimos, arendatoringiz bergan maxsus kodni kiriting.");
@@ -95,6 +95,9 @@ export default function LoginPage() {
       if (res && res.valid) {
         setVerificationData(res);
         setCodeError(null);
+        if (advanceOnSuccess) {
+          setStep(3);
+        }
       } else {
         setVerificationData(null);
         setCodeError("Kiritilgan maxsus kod xato! Iltimos, arendatoringizdan to'g'ri kodni so'rang.");
@@ -355,7 +358,17 @@ export default function LoginPage() {
 
         {/* STEP 2: Special Invite Code (Ijarachi Only) */}
         {step === 2 && (
-          <div className="space-y-4 animate-in fade-in duration-200">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (verificationData && verificationData.valid) {
+                setStep(3);
+              } else {
+                handleVerifyCode(true);
+              }
+            }}
+            className="space-y-4 animate-in fade-in duration-200"
+          >
             <div>
               <button
                 type="button"
@@ -399,7 +412,7 @@ export default function LoginPage() {
                   </div>
                   <button
                     type="button"
-                    onClick={handleVerifyCode}
+                    onClick={() => handleVerifyCode(false)}
                     disabled={verifyingCode || !inviteCode.trim()}
                     className="py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-2xs transition active:scale-95 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
                   >
@@ -456,16 +469,24 @@ export default function LoginPage() {
 
             <div className="pt-6">
               <button
-                type="button"
-                disabled={!verificationData || !verificationData.valid}
-                onClick={() => setStep(3)}
+                type="submit"
+                disabled={verifyingCode || inviteCode.trim().length < 3}
                 className="w-full py-3.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-2xl shadow-sm transition active:scale-98 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
-                <span>Davom etish</span>
-                <ArrowRight className="w-4 h-4" />
+                {verifyingCode ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Tekshirilmoqda...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Davom etish</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
               </button>
             </div>
-          </div>
+          </form>
         )}
 
         {/* STEP 3: Phone Verification & Identity */}
