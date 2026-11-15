@@ -15,14 +15,19 @@ import {
 } from "lucide-react";
 import { CarListItem, Driver, User as UserType, CreateContractPayload } from "@/types/fleet";
 import { createContract } from "@/lib/api";
+import { UzbekLicensePlateInput } from "@/components/UzbekLicensePlateInput";
+import { UzbekPhoneInput } from "@/components/UzbekPhoneInput";
 import {
   formatUSD,
   formatPercent,
   getLocalDateString,
   formatPlateNumber,
   isValidPlateNumber,
+  getUzbekPlateInfo,
   formatUzbekPhone,
   isValidUzbekPhone,
+  validateUzbekPhone,
+  cleanPhoneForBackend,
   formatMoneyInput,
   parseMoneyValue,
 } from "@/lib/utils";
@@ -199,29 +204,42 @@ export function ContractTab({
         setError("Iltimos, mashina davlat raqamini kiriting.");
         return;
       }
-      if (!isValidPlateNumber(plateNumber)) {
+      const plateInfo = getUzbekPlateInfo(plateNumber);
+      if (plateInfo.hasRegion && !plateInfo.isRegionValid) {
+        setError("Davlat raqamida mavjud bo'lmagan hudud kodi kiritildi.");
+        return;
+      }
+      if (!plateInfo.isValid) {
         setError("Davlat raqami formati noto'g'ri. Namuna: 01 A 777 AA yoki 01 777 AAA");
         return;
       }
     }
-
-    const secondaryDigits = driverSecondaryPhone.replace(/\D/g, "");
-    const secondaryNational = secondaryDigits.startsWith("998")
-      ? secondaryDigits.slice(3)
-      : secondaryDigits;
 
     if (driverMode === "new") {
       if (!driverFullName.trim()) {
         setError("Iltimos, yangi haydovchining ism-familiyasini kiriting.");
         return;
       }
-      if (!isValidUzbekPhone(driverPhone)) {
-        setError("Haydovchi telefon raqami to'liq kiritilishi shart (+998 XX XXX XX XX).");
+      const primaryInfo = validateUzbekPhone(driverPhone);
+      if (primaryInfo.hasOperator && !primaryInfo.isValidOperator) {
+        setError("Haydovchi telefon raqamida noto'g'ri operator kodi kiritildi.");
         return;
       }
-      if (showSecondaryPhone && secondaryNational.length > 0 && secondaryNational.length < 9) {
-        setError("Qo'shimcha telefon raqami to'liq kiritilishi shart (+998 XX XXX XX XX) yoki o'chirib tashlang.");
+      if (!primaryInfo.isValid) {
+        setError("Haydovchi telefon raqami to'liq kiritilishi shart (+998 (XX) XXX-XX-XX).");
         return;
+      }
+
+      if (showSecondaryPhone && driverSecondaryPhone.trim() && driverSecondaryPhone.trim() !== "+998") {
+        const secInfo = validateUzbekPhone(driverSecondaryPhone);
+        if (secInfo.hasOperator && !secInfo.isValidOperator) {
+          setError("Qo'shimcha telefon raqamida noto'g'ri operator kodi kiritildi.");
+          return;
+        }
+        if (!secInfo.isValid) {
+          setError("Qo'shimcha telefon raqami to'liq kiritilishi shart (+998 (XX) XXX-XX-XX) yoki o'chirib tashlang.");
+          return;
+        }
       }
     } else {
       if (!driverId) {
@@ -253,10 +271,10 @@ export function ContractTab({
         ...(driverMode === "new"
           ? {
               driver_full_name: driverFullName.trim(),
-              driver_phone: driverPhone.trim(),
+              driver_phone: cleanPhoneForBackend(driverPhone),
               driver_secondary_phone:
-                showSecondaryPhone && secondaryNational.length === 9
-                  ? driverSecondaryPhone.trim()
+                showSecondaryPhone && validateUzbekPhone(driverSecondaryPhone).isValid
+                  ? cleanPhoneForBackend(driverSecondaryPhone)
                   : "",
             }
           : {
@@ -411,26 +429,13 @@ export function ContractTab({
                 <label className="block text-[11px] font-medium text-slate-600">
                   Davlat raqami *
                 </label>
-                {plateNumber && (
-                  <span
-                    className={`text-[10px] font-semibold ${
-                      isValidPlateNumber(plateNumber) ? "text-emerald-600" : "text-amber-600"
-                    }`}
-                  >
-                    {isValidPlateNumber(plateNumber) ? "✓ To'g'ri format" : "Format: 01 A 777 AA"}
-                  </span>
-                )}
               </div>
-              <input
-                type="text"
-                required
+              <UzbekLicensePlateInput
                 value={plateNumber}
-                onChange={(e) => {
-                  setPlateNumber(formatPlateNumber(e.target.value));
+                onChange={(formatted) => {
+                  setPlateNumber(formatted);
                   if (carId) setCarId("");
                 }}
-                placeholder="01 A 777 AA"
-                className="w-full px-3.5 py-2.5 text-sm uppercase font-mono font-bold bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
               />
             </div>
           </div>
@@ -521,33 +526,12 @@ export function ContractTab({
                     <label className="block text-[11px] font-medium text-slate-600">
                       Asosiy telefon raqami *
                     </label>
-                    {driverPhone.trim() && driverPhone.trim() !== "+998" && (
-                      <span
-                        className={`text-[10px] font-semibold ${
-                          isValidUzbekPhone(driverPhone) ? "text-emerald-600" : "text-amber-600"
-                        }`}
-                      >
-                        {isValidUzbekPhone(driverPhone) ? "✓ To'liq kiritildi" : "XX XXX XX XX"}
-                      </span>
-                    )}
                   </div>
-                  <input
-                    type="tel"
-                    required
+                  <UzbekPhoneInput
                     value={driverPhone}
-                    onChange={(e) => setDriverPhone(formatUzbekPhone(e.target.value, false))}
-                    onKeyDown={(e) => {
-                      const input = e.currentTarget;
-                      if (
-                        e.key === "Backspace" &&
-                        (input.selectionStart ?? 0) <= 5 &&
-                        (input.selectionEnd ?? 0) <= 5
-                      ) {
-                        e.preventDefault();
-                      }
-                    }}
-                    placeholder="+998 90 123 45 67"
-                    className="w-full px-3.5 py-2.5 text-sm font-mono font-semibold bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                    onChange={(formatted) => setDriverPhone(formatted)}
+                    placeholder="+998 (90) 123-45-67"
+                    required
                   />
                 </div>
 
@@ -571,51 +555,21 @@ export function ContractTab({
                       <label className="block text-[11px] font-medium text-slate-700">
                         Qo&apos;shimcha telefon raqami (ixtiyoriy)
                       </label>
-                      <div className="flex items-center gap-2">
-                        {(() => {
-                          const secDigits = driverSecondaryPhone.replace(/\D/g, "");
-                          const secNational = secDigits.startsWith("998") ? secDigits.slice(3) : secDigits;
-                          if (secNational.length === 0) {
-                            return <span className="text-[10px] text-slate-400 font-normal">Ixtiyoriy</span>;
-                          }
-                          return (
-                            <span
-                              className={`text-[10px] font-semibold ${
-                                secNational.length === 9 ? "text-emerald-600" : "text-amber-600"
-                              }`}
-                            >
-                              {secNational.length === 9 ? "✓ To'liq" : "XX XXX XX XX"}
-                            </span>
-                          );
-                        })()}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowSecondaryPhone(false);
-                            setDriverSecondaryPhone("+998 ");
-                          }}
-                          className="text-xs text-rose-600 hover:text-rose-700 font-semibold hover:underline"
-                        >
-                          ✕ Bekor qilish
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowSecondaryPhone(false);
+                          setDriverSecondaryPhone("+998 ");
+                        }}
+                        className="text-xs text-rose-600 hover:text-rose-700 font-semibold hover:underline"
+                      >
+                        ✕ Bekor qilish
+                      </button>
                     </div>
-                    <input
-                      type="tel"
+                    <UzbekPhoneInput
                       value={driverSecondaryPhone}
-                      onChange={(e) => setDriverSecondaryPhone(formatUzbekPhone(e.target.value, false))}
-                      onKeyDown={(e) => {
-                        const input = e.currentTarget;
-                        if (
-                          e.key === "Backspace" &&
-                          (input.selectionStart ?? 0) <= 5 &&
-                          (input.selectionEnd ?? 0) <= 5
-                        ) {
-                          e.preventDefault();
-                        }
-                      }}
-                      placeholder="+998 93 987 65 43"
-                      className="w-full px-3.5 py-2.5 text-sm font-mono font-semibold bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                      onChange={(formatted) => setDriverSecondaryPhone(formatted)}
+                      placeholder="+998 (93) 987-65-43"
                     />
                   </div>
                 )}

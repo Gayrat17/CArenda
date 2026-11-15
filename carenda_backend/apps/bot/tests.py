@@ -10,9 +10,12 @@ from apps.bot.handlers import (
     get_existing_user,
     get_main_reply_keyboard,
     get_miniapp_inline_keyboard,
+    get_phone_kb,
     get_role_selection_keyboard,
+    get_webapp_kb,
     handle_choose_owner,
     handle_choose_user,
+    handle_contact,
     handle_owner_contact,
     handle_start,
     handle_user_contact,
@@ -55,7 +58,7 @@ class BotDualOnboardingTests(TestCase):
         self.tg_user_mock.username = "jamshid_tg"
         self.tg_user_mock.full_name = "Jamshid Karimov"
 
-    async def test_start_unregistered_user_prompts_role_selection(self):
+    async def test_start_unregistered_user_prompts_phone_contact_only(self):
         message = MagicMock()
         message.from_user = self.tg_user_mock
         message.answer = AsyncMock()
@@ -63,20 +66,21 @@ class BotDualOnboardingTests(TestCase):
 
         await handle_start(message, state)
 
-        # Should prompt for role selection
+        # Should prompt only for phone contact with single button
         message.answer.assert_called_once()
         args, kwargs = message.answer.call_args
-        self.assertIn("o'z rolingizni tanlang", args[0])
+        self.assertIn("telefon raqamingizni tasdiqlang", args[0].lower())
         self.assertEqual(
-            await state.get_state(), RegistrationStates.waiting_for_role.state
+            await state.get_state(), RegistrationStates.waiting_for_owner_phone.state
         )
         reply_markup = kwargs.get("reply_markup")
         self.assertIsNotNone(reply_markup)
         buttons = [b.text for row in reply_markup.keyboard for b in row]
-        self.assertIn("🚗 Men Arendatorman", buttons)
-        self.assertIn("👤 Men Foydalanuvchiman (Ijarachi)", buttons)
+        self.assertEqual(buttons, ["📱 Telefon raqamni yuborish"])
+        self.assertTrue(reply_markup.one_time_keyboard)
+        self.assertTrue(reply_markup.resize_keyboard)
 
-    async def test_start_registered_owner_greets_with_tenant_code(self):
+    async def test_start_registered_owner_greets_with_tenant_code_and_cleans_reply_kb(self):
         user = await User.objects.acreate(
             username="owner_user",
             telegram_id=111222333,
@@ -95,10 +99,18 @@ class BotDualOnboardingTests(TestCase):
 
         await handle_start(message, state)
 
-        self.assertEqual(message.answer.call_count, 2)
-        first_call_args = message.answer.call_args_list[0][0]
-        self.assertIn("AR-TEST", first_call_args[0])
-        self.assertIn("Carenda boshqaruv tizimiga xush kelibsiz", first_call_args[0])
+        # First call removes any leftover reply keyboard
+        self.assertGreaterEqual(message.answer.call_count, 2)
+        clean_call_kwargs = message.answer.call_args_list[0][1]
+        from aiogram.types import ReplyKeyboardRemove, InlineKeyboardMarkup
+        self.assertIsInstance(clean_call_kwargs.get("reply_markup"), ReplyKeyboardRemove)
+
+        # Second call is welcome banner with Inline WebApp keyboard
+        welcome_args = message.answer.call_args_list[1][0]
+        welcome_kwargs = message.answer.call_args_list[1][1]
+        self.assertIn("AR-TEST", welcome_args[0])
+        self.assertIn("Carenda tizimiga xush kelibsiz", welcome_args[0])
+        self.assertIsInstance(welcome_kwargs.get("reply_markup"), InlineKeyboardMarkup)
 
     async def test_start_registered_user_driver_greets_with_schedule_miniapp(self):
         owner = await User.objects.acreate(
@@ -123,11 +135,10 @@ class BotDualOnboardingTests(TestCase):
 
         await handle_start(message, state)
 
-        self.assertEqual(message.answer.call_count, 2)
-        first_call_args = message.answer.call_args_list[0][0]
-        self.assertIn("Carenda ijarachi kabinetiga xush kelibsiz", first_call_args[0])
-        second_call_kwargs = message.answer.call_args_list[1][1]
-        self.assertIsNotNone(second_call_kwargs.get("reply_markup"))
+        self.assertGreaterEqual(message.answer.call_count, 2)
+        from aiogram.types import ReplyKeyboardRemove, InlineKeyboardMarkup
+        self.assertIsInstance(message.answer.call_args_list[0][1].get("reply_markup"), ReplyKeyboardRemove)
+        self.assertIsInstance(message.answer.call_args_list[1][1].get("reply_markup"), InlineKeyboardMarkup)
 
     async def test_owner_onboarding_flow(self):
         state = MockFSMContext()
@@ -165,6 +176,12 @@ class BotDualOnboardingTests(TestCase):
 
         # State cleared
         self.assertIsNone(await state.get_state())
+
+        # ReplyKeyboard removed and inline WebApp sent
+        self.assertGreaterEqual(message_contact.answer.call_count, 2)
+        from aiogram.types import ReplyKeyboardRemove, InlineKeyboardMarkup
+        self.assertIsInstance(message_contact.answer.call_args_list[0][1].get("reply_markup"), ReplyKeyboardRemove)
+        self.assertIsInstance(message_contact.answer.call_args_list[1][1].get("reply_markup"), InlineKeyboardMarkup)
 
     async def test_user_driver_onboarding_flow_success(self):
         # Setup: Owner and pre-registered Driver in DB
@@ -289,6 +306,39 @@ class BotDualOnboardingTests(TestCase):
             telegram_id=111222333
         ).aexists()
         self.assertFalse(user_exists)
+
+    async def test_general_contact_saves_phone_and_clears_reply_keyboard(self):
+        user = await User.objects.acreate(
+            telegram_id=self.tg_user_mock.id,
+            username="onboarded_test_user",
+            full_name="Test User",
+            is_onboarded=True,
+            is_registered=True,
+        )
+        state = MockFSMContext()
+        contact_mock = MagicMock()
+        contact_mock.phone_number = "+998907778899"
+        contact_mock.user_id = self.tg_user_mock.id
+
+        message = MagicMock()
+        message.from_user = self.tg_user_mock
+        message.contact = contact_mock
+        message.answer = AsyncMock()
+
+        await handle_contact(message, state)
+
+        # Phone should be saved in DB
+        await user.arefresh_from_db()
+        self.assertEqual(user.phone, "+998907778899")
+
+        # ReplyKeyboardRemove must be sent to destroy bottom keyboard
+        self.assertEqual(message.answer.call_count, 2)
+        from aiogram.types import ReplyKeyboardRemove, InlineKeyboardMarkup
+        self.assertIsInstance(message.answer.call_args_list[0][1].get("reply_markup"), ReplyKeyboardRemove)
+        self.assertIn("qabul qilindi", message.answer.call_args_list[0][0][0])
+
+        # Inline WebApp button must be sent
+        self.assertIsInstance(message.answer.call_args_list[1][1].get("reply_markup"), InlineKeyboardMarkup)
 
     def test_keyboards_structure(self):
         role_kb = get_role_selection_keyboard()

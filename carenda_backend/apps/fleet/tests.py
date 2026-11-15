@@ -1002,10 +1002,12 @@ class PerformanceAndCachingTests(TestCase):
             password="pass",
             role=User.RoleChoices.ARENDATOR,
             full_name="Perf Arendator",
+            phone="+998901234567",
             telegram_id=888777666,
             cars_limit=20,
             expires_at=timezone.now() + timedelta(days=30),
             is_registered=True,
+            is_onboarded=True,
         )
         self.driver = Driver.objects.create(
             owner=self.owner,
@@ -1795,6 +1797,123 @@ class SingleContractExcelExportTests(TestCase):
     def test_non_existent_contract_returns_404(self):
         res = self.client_a.get("/api/v1/contracts/999999/export/excel/")
         self.assertEqual(res.status_code, 404)
+
+
+class UzbekSmartValidationSerializerTests(TestCase):
+    def test_validate_phone_valid_operators(self):
+        from apps.fleet.serializers import validate_phone
+        valid_numbers = [
+            "+998901234567",
+            "+998911234567",
+            "+998931234567",
+            "+998941234567",
+            "+998951234567",
+            "+998971234567",
+            "+998981234567",
+            "+998991234567",
+            "+998331234567",
+            "+998501234567",
+            "+998551234567",
+            "+998711234567",
+            "+998771234567",
+            "+998781234567",
+            "+998881234567",
+            "+998 (90) 123-45-67",
+            "998901234567",
+        ]
+        for phone in valid_numbers:
+            self.assertTrue(validate_phone(phone).startswith("+998"))
+
+    def test_validate_phone_invalid_operators(self):
+        from apps.fleet.serializers import validate_phone
+        from rest_framework.exceptions import ValidationError
+        invalid_numbers = [
+            "+998001234567",
+            "+998121234567",
+            "+998451234567",
+            "+998201234567",
+            "+998921234567",
+            "1234567",
+            "",
+        ]
+        for phone in invalid_numbers:
+            with self.assertRaises(ValidationError):
+                validate_phone(phone)
+
+    def test_validate_car_number_valid_regions_and_formats(self):
+        from apps.fleet.serializers import validate_car_number
+        valid_plates = [
+            "01 A 777 AA",
+            "10 B 123 BB",
+            "20 C 456 CC",
+            "25 D 789 DD",
+            "30 E 001 EE",
+            "40 F 234 FF",
+            "50 G 567 GG",
+            "60 H 890 HH",
+            "70 J 321 JJ",
+            "75 K 654 KK",
+            "80 L 987 LL",
+            "85 M 111 MM",
+            "90 N 222 NN",
+            "95 P 333 PP",
+            "01 777 AAA",
+            "10 123 BBB",
+            "01A777AA",
+            "01777AAA",
+            "  01 A 777 AA  ",
+        ]
+        for plate in valid_plates:
+            self.assertTrue(bool(validate_car_number(plate)))
+
+    def test_validate_car_number_invalid_regions_and_formats(self):
+        from apps.fleet.serializers import validate_car_number
+        from rest_framework.exceptions import ValidationError
+        invalid_plates = [
+            "15 A 777 AA",  # Invalid region 15
+            "99 A 777 AA",  # Invalid region 99
+            "00 A 777 AA",  # Invalid region 00
+            "01 123 AA",    # Invalid format
+            "01 AA 777 AA", # Invalid format
+            "01 7777 AAA",  # 4 digits for legal
+            "",
+        ]
+        for plate in invalid_plates:
+            with self.assertRaises(ValidationError):
+                validate_car_number(plate)
+
+    def test_contract_serializer_validation(self):
+        from apps.fleet.serializers import ContractCreateSerializer, ContractSerializer
+        self.assertIs(ContractSerializer, ContractCreateSerializer)
+
+        # Invalid phone should fail
+        serializer = ContractCreateSerializer(data={
+            "car_name": "Gentra",
+            "plate_number": "01 A 777 AA",
+            "driver_full_name": "Vali",
+            "driver_phone": "+998121234567",  # Invalid operator
+            "car_price": "10000.00",
+            "months_count": 12,
+            "payment_day": 5,
+            "start_date": "2026-01-01",
+        })
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("driver_phone", serializer.errors)
+
+        # Invalid plate should fail
+        serializer2 = ContractCreateSerializer(data={
+            "car_name": "Gentra",
+            "plate_number": "15 A 777 AA",  # Invalid region
+            "driver_full_name": "Vali",
+            "driver_phone": "+998901234567",
+            "car_price": "10000.00",
+            "months_count": 12,
+            "payment_day": 5,
+            "start_date": "2026-01-01",
+        })
+        self.assertFalse(serializer2.is_valid())
+        self.assertIn("plate_number", serializer2.errors)
+
 
 
 

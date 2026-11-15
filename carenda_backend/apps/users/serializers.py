@@ -4,7 +4,7 @@ from apps.users.models import PaymentSettings, SubscriptionRequest, User, UserSe
 
 
 class UserMeSerializer(serializers.ModelSerializer):
-    role = serializers.CharField()
+    role = serializers.CharField(read_only=True)
     tenant_code = serializers.CharField(read_only=True)
     invite_code = serializers.CharField(read_only=True)
     is_registered = serializers.BooleanField(read_only=True)
@@ -59,6 +59,27 @@ class UserMeSerializer(serializers.ModelSerializer):
             "subscription_expires_at",
             "is_frozen",
             "remaining_days",
+        ]
+        read_only_fields = [
+            "id",
+            "telegram_id",
+            "role",
+            "is_superuser",
+            "is_staff",
+            "is_superadmin",
+            "is_frozen",
+            "plan",
+            "trial_ends_at",
+            "subscription_expires_at",
+            "expires_at",
+            "tenant_code",
+            "invite_code",
+            "is_registered",
+            "is_onboarded",
+            "parent_owner",
+            "linked_arendator",
+            "driver_id",
+            "cars_limit",
         ]
 
     def get_username(self, obj: User) -> str | None:
@@ -265,6 +286,7 @@ class SuperadminArendatorSerializer(serializers.ModelSerializer):
             "cars_count",
             "active_contracts_count",
             "is_frozen",
+            "can_monitor_renters",
             "is_superuser",
             "is_onboarded",
             "is_subscription_active",

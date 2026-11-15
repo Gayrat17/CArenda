@@ -16,12 +16,17 @@ import {
   Sparkles,
   Check,
 } from "lucide-react";
-import { completeOnboarding, getBootstrap, getMe, verifyInviteCode } from "@/lib/api";
+import { completeOnboarding, getBootstrap, getMe, logout, switchRole, verifyInviteCode } from "@/lib/api";
 import { formatUzbekPhone } from "@/lib/utils";
 import { VerifyInviteCodeResponse } from "@/types/fleet";
+import { WelcomeOnboarding } from "@/components/WelcomeOnboarding";
 
 export default function LoginPage() {
   const router = useRouter();
+
+  // Onboarding Carousel state
+  const [mounted, setMounted] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
 
   // Onboarding Wizard Steps: 1: Role, 2: Special Code (Ijarachi only), 3: Phone & Identity
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -45,7 +50,19 @@ export default function LoginPage() {
 
   // Check if user is already onboarded on mount
   useEffect(() => {
+    setMounted(true);
     if (typeof window !== "undefined") {
+      const seen = window.localStorage.getItem("carenda_onboarding_seen") === "true";
+      const isExplicitLoggedOut =
+        window.location.search.includes("logged_out=1") ||
+        window.location.search.includes("switch_role=1") ||
+        window.sessionStorage.getItem("carenda_logged_out") === "true" ||
+        window.sessionStorage.getItem("carenda_switch_role") === "true";
+
+      if (!seen && !isExplicitLoggedOut) {
+        setShowOnboarding(true);
+      }
+
       const tg = (window as unknown as { Telegram?: { WebApp?: Record<string, unknown> } }).Telegram?.WebApp;
       if (tg) {
         if (typeof tg.ready === "function") tg.ready();
@@ -65,12 +82,19 @@ export default function LoginPage() {
           }
         }
       }
+
+      if (isExplicitLoggedOut) {
+        // User explicitly logged out or requested role switch: do not auto-redirect
+        return;
+      }
     }
 
     getBootstrap({ forceRefresh: true })
       .then((boot) => {
         if (boot?.me?.is_onboarded) {
-          if (boot.me.role === "ijarachi" || boot.me.role === "user") {
+          if (boot.me.role === "superadmin" || boot.me.is_superuser || boot.me.is_superadmin) {
+            router.replace("/superadmin");
+          } else if (boot.me.role === "ijarachi" || boot.me.role === "user") {
             router.replace("/client");
           } else {
             router.replace("/");
@@ -79,6 +103,26 @@ export default function LoginPage() {
       })
       .catch(() => {});
   }, [router]);
+
+  // Handle Switch Role action (resets wizard and frees user from wrong role choice)
+  const handleSwitchRole = async () => {
+    setSelectedRole(null);
+    setStep(1);
+    setInviteCode("");
+    setVerificationData(null);
+    setCodeError(null);
+    setSubmitError(null);
+
+    try {
+      if (typeof window !== "undefined") {
+        window.sessionStorage.setItem("carenda_switch_role", "true");
+        window.sessionStorage.setItem("carenda_logged_out", "true");
+      }
+      await switchRole();
+    } catch {
+      // Local fallback reset already applied
+    }
+  };
 
   // Handle Verify Code
   const handleVerifyCode = async (advanceOnSuccess = false) => {
@@ -152,7 +196,14 @@ export default function LoginPage() {
         }
       }
 
-      if (res.role === "ijarachi" || res.role === "user") {
+      if (typeof window !== "undefined") {
+        window.sessionStorage.removeItem("carenda_logged_out");
+        window.sessionStorage.removeItem("carenda_switch_role");
+      }
+
+      if (res.role === "superadmin" || (res as unknown as { is_superuser?: boolean }).is_superuser) {
+        router.replace("/superadmin");
+      } else if (res.role === "ijarachi" || res.role === "user") {
         router.replace("/client");
       } else {
         router.replace("/");
@@ -212,6 +263,19 @@ export default function LoginPage() {
     e.preventDefault();
     await submitOnboardingWithPhone(phoneNumber);
   };
+
+  // Handle Finishing Onboarding Carousel
+  const handleFinishOnboarding = () => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("carenda_onboarding_seen", "true");
+    }
+    setShowOnboarding(false);
+  };
+
+  // If user has not completed onboarding, display the modern 3-step carousel
+  if (mounted && showOnboarding) {
+    return <WelcomeOnboarding onComplete={handleFinishOnboarding} />;
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-blue-50/70 via-slate-50 to-slate-100 flex flex-col justify-between p-4 sm:p-6 max-w-md mx-auto">
@@ -353,6 +417,18 @@ export default function LoginPage() {
                 <ArrowRight className="w-4 h-4" />
               </button>
             </div>
+
+            {/* Replay Onboarding button */}
+            <div className="pt-2 text-center">
+              <button
+                type="button"
+                onClick={() => setShowOnboarding(true)}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-blue-600 transition cursor-pointer py-1.5 px-3 rounded-full hover:bg-slate-100 mx-auto active:scale-95"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-blue-500" />
+                <span>Carenda haqida</span>
+              </button>
+            </div>
           </div>
         )}
 
@@ -370,14 +446,30 @@ export default function LoginPage() {
             className="space-y-4 animate-in fade-in duration-200"
           >
             <div>
-              <button
-                type="button"
-                onClick={() => setStep(1)}
-                className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 font-medium mb-2 cursor-pointer"
-              >
-                <ArrowLeft className="w-3.5 h-3.5" />
-                <span>Orqaga</span>
-              </button>
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <button
+                  type="button"
+                  onClick={() => setStep(1)}
+                  className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 font-medium cursor-pointer"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>Orqaga</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSwitchRole}
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:text-blue-800 bg-blue-50/80 hover:bg-blue-100/80 px-2.5 py-1 rounded-lg border border-blue-200/60 transition cursor-pointer"
+                  title="Boshlang'ich rol tanlashga qaytish"
+                >
+                  <span>← Rolni o'zgartirish</span>
+                </button>
+              </div>
+
+              <div className="p-2 bg-blue-50/70 border border-blue-100 rounded-xl flex items-center justify-between text-xs mb-2.5">
+                <span className="text-slate-500">Tanlangan rol:</span>
+                <span className="font-bold text-blue-700">👤 Ijarachi (Mijoz)</span>
+              </div>
+
               <span className="text-[11px] font-bold text-blue-600 uppercase tracking-wider block">
                 2-QADAM / 3
               </span>
@@ -467,7 +559,7 @@ export default function LoginPage() {
               )}
             </div>
 
-            <div className="pt-6">
+            <div className="pt-6 space-y-2.5">
               <button
                 type="submit"
                 disabled={verifyingCode || inviteCode.trim().length < 3}
@@ -485,6 +577,15 @@ export default function LoginPage() {
                   </>
                 )}
               </button>
+
+              <button
+                type="button"
+                onClick={handleSwitchRole}
+                className="w-full py-2.5 px-3 rounded-xl border border-slate-200/90 bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 text-xs font-bold flex items-center justify-center gap-1.5 transition active:scale-98 cursor-pointer"
+              >
+                <ArrowLeft className="w-3.5 h-3.5 text-slate-500" />
+                <span>← Rolni o&apos;zgartirish</span>
+              </button>
             </div>
           </form>
         )}
@@ -493,20 +594,38 @@ export default function LoginPage() {
         {step === 3 && (
           <form onSubmit={handleCompleteOnboarding} className="space-y-4 animate-in fade-in duration-200">
             <div>
-              <button
-                type="button"
-                onClick={() => {
-                  if (selectedRole === "ijarachi") {
-                    setStep(2);
-                  } else {
-                    setStep(1);
-                  }
-                }}
-                className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 font-medium mb-2 cursor-pointer"
-              >
-                <ArrowLeft className="w-3.5 h-3.5" />
-                <span>Orqaga</span>
-              </button>
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedRole === "ijarachi") {
+                      setStep(2);
+                    } else {
+                      setStep(1);
+                    }
+                  }}
+                  className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 font-medium cursor-pointer"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>Orqaga</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSwitchRole}
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:text-blue-800 bg-blue-50/80 hover:bg-blue-100/80 px-2.5 py-1 rounded-lg border border-blue-200/60 transition cursor-pointer"
+                  title="Boshlang'ich rol tanlashga qaytish"
+                >
+                  <span>← Rolni o'zgartirish</span>
+                </button>
+              </div>
+
+              <div className="p-2 bg-blue-50/70 border border-blue-100 rounded-xl flex items-center justify-between text-xs mb-2.5">
+                <span className="text-slate-500">Tanlangan rol:</span>
+                <span className="font-bold text-blue-700">
+                  {selectedRole === "arendator" ? "🏢 Arendator (Mashina egasi)" : "👤 Ijarachi (Mijoz)"}
+                </span>
+              </div>
+
               <span className="text-[11px] font-bold text-blue-600 uppercase tracking-wider block">
                 3-QADAM / 3
               </span>
@@ -594,7 +713,7 @@ export default function LoginPage() {
               )}
             </div>
 
-            <div className="pt-6">
+            <div className="pt-6 space-y-2.5">
               <button
                 type="submit"
                 disabled={submitting || phoneNumber.replace(/\D/g, "").length < 9}
@@ -611,6 +730,15 @@ export default function LoginPage() {
                     <span>Ro&apos;yxatdan o&apos;tishni yakunlash</span>
                   </>
                 )}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSwitchRole}
+                className="w-full py-2.5 px-3 rounded-xl border border-slate-200/90 bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 text-xs font-bold flex items-center justify-center gap-1.5 transition active:scale-98 cursor-pointer"
+              >
+                <ArrowLeft className="w-3.5 h-3.5 text-slate-500" />
+                <span>← Rolni o&apos;zgartirish</span>
               </button>
             </div>
           </form>

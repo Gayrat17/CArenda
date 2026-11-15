@@ -24,7 +24,17 @@ from apps.users.models import (
     UserSetting,
     is_superadmin_telegram_id,
 )
-from apps.users.permissions import IsArendator, IsIjarachi, IsOnboarded, IsSuperAdmin
+from apps.users.permissions import (
+    IsActiveSubscriptionOrTrial,
+    IsArendator,
+    IsArendatorOnly,
+    IsIjarachi,
+    IsIjarachiOnly,
+    IsOnboarded,
+    IsSuperAdmin,
+    IsSuperAdminOnly,
+)
+from apps.users.throttling import AuthRateThrottle, InviteCodeRateThrottle, SensitiveActionThrottle
 from apps.users.serializers import (
     PaymentSettingsSerializer,
     PaymentSettingsUpdateSerializer,
@@ -191,7 +201,7 @@ class PaymentSettingsAPIView(APIView):
     def get_permissions(self):
         if self.request.method == "GET":
             return [AllowAny()]
-        return [IsAuthenticated()]
+        return [IsAuthenticated(), IsSuperAdminOnly()]
 
     def get(self, request):
         settings_obj = PaymentSettings.get_settings()
@@ -199,14 +209,6 @@ class PaymentSettingsAPIView(APIView):
         return Response(serializer.data)
 
     def patch(self, request):
-        user = request.user
-        user_role = (getattr(user, "role", "") or "").lower()
-        if user_role != User.RoleChoices.SUPERADMIN and not getattr(user, "is_superuser", False):
-            return Response(
-                {"detail": "Faqat Superadmin to'lov sozlamalarini o'zgartirishi mumkin."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
         settings_obj = PaymentSettings.get_settings()
         serializer = PaymentSettingsUpdateSerializer(settings_obj, data=request.data, partial=True)
         if not serializer.is_valid():
@@ -224,7 +226,7 @@ SubscriptionSettingsAPIView = PaymentSettingsAPIView
 
 
 class SubscriptionRequestAPIView(APIView):
-    permission_classes = [IsAuthenticated, IsArendator]
+    permission_classes = [IsAuthenticated, IsOnboarded, IsArendatorOnly]
 
     def get(self, request):
         requests = SubscriptionRequest.objects.filter(user=request.user).order_by("-created_at")
@@ -277,7 +279,7 @@ class SubscriptionRequestAPIView(APIView):
 
 
 class SubscriptionStatusAPIView(APIView):
-    permission_classes = [IsAuthenticated, IsArendator]
+    permission_classes = [IsAuthenticated, IsOnboarded, IsArendatorOnly]
 
     def get(self, request):
         owner = request.user.tenant_owner
@@ -335,6 +337,7 @@ class TelegramAuthAPIView(APIView):
     Returns the authenticated user's current status and onboarding state.
     """
     permission_classes = [AllowAny]
+    throttle_classes = [AuthRateThrottle]
 
     def post(self, request):
         user = getattr(request, "user", None)
@@ -406,6 +409,7 @@ class VerifyInviteCodeAPIView(APIView):
     """
     authentication_classes = []
     permission_classes = [AllowAny]
+    throttle_classes = [InviteCodeRateThrottle]
 
     def post(self, request):
         raw_code = str(request.data.get("code") or request.data.get("invite_code") or "")
@@ -462,6 +466,12 @@ class CompleteOnboardingAPIView(APIView):
 
     def post(self, request):
         user = request.user
+        if getattr(user, "is_onboarded", False) and getattr(user, "is_registered", False):
+            return Response(
+                {"detail": "Foydalanuvchi allaqachon ro'yxatdan o'tgan va rolni o'zgartirib bo'lmaydi."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         role = str(request.data.get("role") or "").strip().lower()
         if role not in (User.RoleChoices.ARENDATOR, User.RoleChoices.IJARACHI, "user", "owner"):
             return Response(
@@ -552,6 +562,79 @@ class CompleteOnboardingAPIView(APIView):
         return Response(UserMeSerializer(user).data, status=status.HTTP_200_OK)
 
 
+class LogoutAPIView(APIView):
+    """
+    Terminates the user's active session and clears server-side caches.
+    Accessible without requiring authentication so that expired tokens or
+    network errors never block users from logging out.
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        user = getattr(request, "user", None)
+        if user and getattr(user, "is_authenticated", False):
+            try:
+                invalidate_tenant_cache(getattr(user, "id", None), getattr(user, "telegram_id", None))
+            except Exception as e:
+                logger.warning("Failed to invalidate cache on logout for user %s: %s", user.id, e)
+            try:
+                from django.contrib.auth import logout as django_logout
+                django_logout(request)
+            except Exception:
+                pass
+
+        return Response(
+            {"detail": "Muvaffaqiyatli chiqildi.", "success": True},
+            status=status.HTTP_200_OK,
+        )
+
+
+class SwitchRoleAPIView(APIView):
+    """
+    Allows a user who mistakenly selected the wrong role or wishes to reset onboarding
+    to reset their onboarding and role state safely, so they can re-select arendator or ijarachi.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        if user.is_superuser:
+            return Response(
+                {"detail": "Superadmin hisobi rolini o'zgartirib bo'lmaydi."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # If user is an arendator and has active contracts with real clients, block destructive switch
+        from apps.fleet.models import Contract
+        if user.role == User.RoleChoices.ARENDATOR:
+            active_contracts_count = Contract.objects.filter(owner=user, is_active=True).count()
+            if active_contracts_count > 0:
+                return Response(
+                    {
+                        "detail": f"Sizda {active_contracts_count} ta faol shartnoma mavjud bo'lgani sababli rolni bekor qilib bo'lmaydi. Avval shartnomalarni yopishingiz lozim."
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        user.is_onboarded = False
+        user.is_registered = False
+        user.linked_arendator = None
+        user.parent_owner = None
+        user.invite_code = None
+        user.save(update_fields=["is_onboarded", "is_registered", "linked_arendator", "parent_owner", "invite_code"])
+
+        invalidate_tenant_cache(user.id, getattr(user, "telegram_id", None))
+
+        return Response(
+            {
+                "detail": "Rol muvaffaqiyatli bekor qilindi. Boshlang'ich rol tanlash sahifasiga o'tishingiz mumkin.",
+                "success": True,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+
 # =============================================================================
 # Superadmin Endpoints (Protected strictly by IsSuperAdmin)
 # =============================================================================
@@ -577,7 +660,13 @@ class SuperadminArendatorsAPIView(APIView):
             .order_by("-date_joined")
         )
 
-        # Compute global KPIs across all registered Arendators
+        # Compute global KPIs across all registered Arendators and platform stats
+        from apps.fleet.models import Car, Contract, Driver
+        total_cars = Car.objects.count()
+        total_contracts = Contract.objects.count()
+        active_contracts = Contract.objects.filter(is_active=True).count()
+        total_drivers = Driver.objects.count()
+
         kpi = {
             "total": 0,
             "standard": 0,
@@ -587,6 +676,10 @@ class SuperadminArendatorsAPIView(APIView):
             "pending_requests": SubscriptionRequest.objects.filter(
                 status=SubscriptionRequest.Status.PENDING
             ).count(),
+            "total_cars": total_cars,
+            "total_contracts": total_contracts,
+            "active_contracts": active_contracts,
+            "total_drivers": total_drivers,
         }
         all_arendators = list(base_qs)
         for u in all_arendators:
@@ -667,6 +760,30 @@ class SuperadminToggleFreezeAPIView(APIView):
             f"❄️ {target.full_name or target.username} hisobi muzlatildi."
             if target.is_frozen
             else f"▶️ {target.full_name or target.username} hisobi muzlatishdan chiqarildi."
+        )
+        return Response({
+            "detail": msg,
+            "arendator": SuperadminArendatorSerializer(target).data,
+        })
+
+
+class SuperadminToggleMonitoringAPIView(APIView):
+    """
+    Toggles renter monitoring permission for an Arendator.
+    POST /api/superadmin/arendators/<int:pk>/toggle-monitoring/
+    """
+    permission_classes = [IsAuthenticated, IsSuperAdmin]
+
+    def post(self, request, pk):
+        target = get_object_or_404(User, pk=pk)
+        target.can_monitor_renters = not getattr(target, "can_monitor_renters", True)
+        target.save(update_fields=["can_monitor_renters"])
+        invalidate_tenant_cache(target.id, getattr(target, "telegram_id", None))
+
+        msg = (
+            f"✅ {target.full_name or target.username} uchun mijozlar monitoringi yoqildi."
+            if target.can_monitor_renters
+            else f"🚫 {target.full_name or target.username} uchun mijozlar monitoringi o'chirildi."
         )
         return Response({
             "detail": msg,
@@ -779,4 +896,26 @@ class SuperadminRejectRequestAPIView(APIView):
         return Response({
             "detail": "❌ To'lov so'rovi rad etildi.",
             "request": SubscriptionRequestSerializer(sub_req).data,
+        })
+
+
+class SuperadminTriggerNotificationsAPIView(APIView):
+    """
+    Manually triggers both Arendator overdue alerts and Ijarachi payment notifications.
+    Strictly protected by IsAuthenticated and IsSuperAdminOnly.
+    POST /api/superadmin/trigger-notifications/
+    """
+    permission_classes = [IsAuthenticated, IsSuperAdminOnly]
+
+    def post(self, request):
+        from apps.bot.tasks import (
+            send_daily_overdue_alerts_task,
+            send_payment_notifications,
+        )
+        arendator_alerts = send_daily_overdue_alerts_task()
+        ijarachi_alerts = send_payment_notifications()
+        return Response({
+            "detail": "Bildirishnoma yuborish vazifasi muvaffaqiyatli bajarildi.",
+            "arendator_alerts_sent": arendator_alerts,
+            "ijarachi_alerts_sent": ijarachi_alerts,
         })

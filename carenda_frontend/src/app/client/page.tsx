@@ -20,8 +20,11 @@ import {
   History,
   FileText,
   AlertTriangle,
+  LogOut,
+  ChevronDown,
 } from "lucide-react";
-import { getClientDashboard, downloadClientContractExcel } from "@/lib/api";
+import ClientProfileDrawer from "@/components/ClientProfileDrawer";
+import { getClientDashboard, downloadClientContractExcel, logout } from "@/lib/api";
 import {
   ClientContract,
   ClientDashboardResponse,
@@ -44,10 +47,117 @@ export default function ClientPortalPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [downloadingExcel, setDownloadingExcel] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+
+  const handleLogout = async () => {
+    try {
+      setLoggingOut(true);
+      if (typeof window !== "undefined") {
+        const authKeys = [
+          "access_token",
+          "refresh_token",
+          "token",
+          "jwt",
+          "user_role",
+          "role",
+          "renter_code",
+          "invite_code",
+          "user_data",
+          "carenda_auth_token",
+          "carenda_role",
+          "carenda_user",
+        ];
+        authKeys.forEach((k) => {
+          window.localStorage.removeItem(k);
+          window.sessionStorage.removeItem(k);
+        });
+
+        for (let i = window.localStorage.length - 1; i >= 0; i--) {
+          const key = window.localStorage.key(i);
+          if (
+            key &&
+            key !== "carenda_onboarding_seen" &&
+            (key.startsWith("carenda_") || key.startsWith("carenda-"))
+          ) {
+            window.localStorage.removeItem(key);
+          }
+        }
+        for (let i = window.sessionStorage.length - 1; i >= 0; i--) {
+          const key = window.sessionStorage.key(i);
+          if (key && (key.startsWith("carenda_") || key.startsWith("carenda-"))) {
+            window.sessionStorage.removeItem(key);
+          }
+        }
+
+        window.sessionStorage.setItem("carenda_logged_out", "true");
+
+        document.cookie.split(";").forEach((cookie) => {
+          const eqPos = cookie.indexOf("=");
+          const name = eqPos > -1 ? cookie.substring(0, eqPos).trim() : cookie.trim();
+          if (name) {
+            document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;`;
+          }
+        });
+      }
+
+      await logout();
+    } catch {
+      router.replace("/login?logged_out=1");
+    } finally {
+      setLoggingOut(false);
+    }
+  };
+
+  const renderLogoutModal = () => {
+    if (!showLogoutConfirm) return null;
+    return (
+      <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+        <div className="bg-white rounded-3xl p-5 max-w-sm w-full space-y-4 shadow-xl border border-slate-100 animate-in zoom-in-95 duration-150">
+          <div className="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center mx-auto">
+            <LogOut className="w-6 h-6" />
+          </div>
+          <div className="text-center space-y-1">
+            <h3 className="text-base font-bold text-slate-900">
+              Hisobdan chiqish
+            </h3>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Haqiqatan ham hisobdan chiqmoqchimisiz?
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-2 pt-2">
+            <button
+              type="button"
+              disabled={loggingOut}
+              onClick={() => setShowLogoutConfirm(false)}
+              className="py-3 px-4 rounded-xl border border-slate-200 text-slate-700 font-bold text-xs hover:bg-slate-50 transition active:scale-95 cursor-pointer disabled:opacity-50"
+            >
+              Bekor qilish
+            </button>
+            <button
+              type="button"
+              disabled={loggingOut}
+              onClick={handleLogout}
+              className="py-3 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-xs transition active:scale-95 cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>{loggingOut ? "Chiqilmoqda..." : "Chiqish"}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   // Fetch client dashboard
   const loadDashboard = useCallback(async (forceRefresh = false) => {
     try {
+      if (typeof window !== "undefined" && window.sessionStorage.getItem("carenda_logged_out") === "true") {
+        router.replace("/login?logged_out=1");
+        return;
+      }
+
       if (forceRefresh) setRefreshing(true);
       else setLoading(true);
       setError(null);
@@ -228,24 +338,45 @@ export default function ClientPortalPage() {
       <div className="min-h-screen bg-slate-50 flex flex-col justify-between p-4 sm:p-6 max-w-md mx-auto">
         {/* Header */}
         <div className="pt-3 flex items-center justify-between border-b border-slate-200/80 pb-3">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
-              <Car className="w-5 h-5" />
+          <button
+            type="button"
+            onClick={() => setIsProfileMenuOpen(true)}
+            className="flex items-center gap-2.5 text-left cursor-pointer group p-1 -m-1 rounded-2xl hover:bg-slate-100/60 active:scale-98 transition"
+            aria-label="Profil menyusi"
+          >
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform">
+              <UserIcon className="w-5 h-5" />
             </div>
             <div>
-              <h1 className="text-sm font-extrabold text-slate-900">Carenda</h1>
-              <span className="text-[10px] text-blue-600 font-bold uppercase tracking-wide">
+              <div className="flex items-center gap-1">
+                <h1 className="text-sm font-extrabold text-slate-900 capitalize">
+                  {data?.client?.full_name || "Mijoz"}
+                </h1>
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400 group-hover:text-blue-600 group-hover:translate-y-0.5 transition-all" />
+              </div>
+              <span className="text-[10px] text-blue-600 font-bold uppercase tracking-wide block">
                 Mijoz Portali
               </span>
             </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => loadDashboard(true)}
-            className="p-2 text-slate-500 hover:text-slate-800 bg-white border border-slate-200 rounded-xl transition active:scale-95 cursor-pointer shadow-2xs"
-          >
-            <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} />
           </button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => loadDashboard(true)}
+              className="p-2 text-slate-500 hover:text-slate-800 bg-white border border-slate-200 rounded-xl transition active:scale-95 cursor-pointer shadow-2xs"
+              title="Yangilash"
+            >
+              <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsProfileMenuOpen(true)}
+              className="p-2 text-slate-600 hover:text-blue-600 bg-white border border-slate-200 rounded-xl transition active:scale-95 cursor-pointer shadow-2xs"
+              title="Profil menyusi"
+            >
+              <UserIcon className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         <div className="text-center py-16 px-4 space-y-3">
@@ -258,16 +389,40 @@ export default function ClientPortalPage() {
           <p className="text-xs text-slate-500 max-w-xs mx-auto leading-relaxed">
             Hurmatli <span className="font-semibold text-slate-800">{data?.client?.full_name}</span>, sizning hisobingizga biriktirilgan faol avtomobil shartnomasi topilmadi.
           </p>
-          <div className="pt-2">
+          <div className="pt-2 space-y-2">
             <div className="p-3.5 bg-amber-50 border border-amber-200/80 rounded-2xl text-amber-800 text-xs text-left leading-relaxed">
               💡 <b>Maslahat:</b> Arendatoringizdan shartnoma maxsus kodini (<code className="font-mono font-bold bg-white px-1 py-0.5 rounded border border-amber-200">CR4829</code>) so&apos;rang va tizimga qayta kirib biriktiring.
             </div>
+            <button
+              type="button"
+              onClick={() => setShowLogoutConfirm(true)}
+              className="w-full py-2.5 px-3 rounded-xl border border-rose-200 bg-rose-50/80 hover:bg-rose-100 text-rose-600 text-xs font-semibold flex items-center justify-center gap-1.5 transition active:scale-98 cursor-pointer"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Hisobdan chiqish yoki rolni almashtirish</span>
+            </button>
           </div>
         </div>
 
         <div className="text-center py-2 text-[11px] text-slate-400">
           Carenda v2.0 • Mijoz Shaxsiy Kabineti
         </div>
+
+        {data?.client && (
+          <ClientProfileDrawer
+            isOpen={isProfileMenuOpen}
+            onClose={() => setIsProfileMenuOpen(false)}
+            client={data.client}
+            contracts={[]}
+            activeContract={null}
+            onSelectContract={() => {}}
+            onDownloadExcel={async () => {}}
+            downloadingExcel={false}
+            onLogout={handleLogout}
+          />
+        )}
+
+        {renderLogoutModal()}
       </div>
     );
   }
@@ -276,19 +431,25 @@ export default function ClientPortalPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 pb-16 pt-3 px-3 sm:px-4 max-w-md mx-auto space-y-3.5">
-      {/* Top Header */}
+      {/* Top Header with Interactive Profile Trigger */}
       <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-2xs space-y-3">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white flex items-center justify-center font-bold shadow-xs shrink-0">
+          <button
+            type="button"
+            onClick={() => setIsProfileMenuOpen(true)}
+            className="flex items-center gap-3 min-w-0 text-left cursor-pointer group p-1 -m-1 rounded-2xl hover:bg-slate-50 active:scale-98 transition"
+            aria-label="Mijoz profil menyusi"
+          >
+            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white flex items-center justify-center font-bold shadow-xs shrink-0 group-hover:scale-105 transition-transform">
               <UserIcon className="w-5 h-5" />
             </div>
             <div className="min-w-0">
-              <div className="flex items-center gap-1.5 flex-wrap">
+              <div className="flex items-center gap-1">
                 <span className="text-[11px] text-slate-400 font-medium">Assalomu alaykum,</span>
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400 group-hover:text-blue-600 group-hover:translate-y-0.5 transition-all" />
               </div>
-              <h1 className="text-base font-black text-slate-900 truncate capitalize">
-                {client.full_name}
+              <h1 className="text-base font-black text-slate-900 truncate capitalize flex items-center gap-1">
+                <span>{client.full_name}</span>
               </h1>
               {client.phone && (
                 <span className="text-[10px] text-slate-500 font-mono font-bold block">
@@ -296,16 +457,26 @@ export default function ClientPortalPage() {
                 </span>
               )}
             </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => loadDashboard(true)}
-            className="p-2.5 text-slate-500 hover:text-slate-800 bg-slate-50 hover:bg-slate-100 border border-slate-200/80 rounded-2xl transition active:scale-95 cursor-pointer shrink-0"
-            title="Yangilash"
-          >
-            <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin text-blue-600" : ""}`} />
           </button>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => loadDashboard(true)}
+              className="p-2.5 text-slate-500 hover:text-slate-800 bg-slate-50 hover:bg-slate-100 border border-slate-200/80 rounded-2xl transition active:scale-95 cursor-pointer"
+              title="Yangilash"
+            >
+              <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin text-blue-600" : ""}`} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsProfileMenuOpen(true)}
+              className="p-2.5 text-slate-600 hover:text-blue-600 bg-slate-50 hover:bg-blue-50 border border-slate-200/80 rounded-2xl transition active:scale-95 cursor-pointer"
+              title="Profil menyusi"
+            >
+              <UserIcon className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* Arendator Contact Bar */}
@@ -736,6 +907,24 @@ export default function ClientPortalPage() {
       <div className="text-center pt-2 text-[11px] text-slate-400 font-medium">
         Carenda v2.0 • Mijoz Shaxsiy Portali
       </div>
+
+      {/* Interactive Client Profile Drawer & Modals */}
+      <ClientProfileDrawer
+        isOpen={isProfileMenuOpen}
+        onClose={() => setIsProfileMenuOpen(false)}
+        client={client}
+        contracts={data.contracts}
+        activeContract={activeContract}
+        onSelectContract={(id) => {
+          setSelectedContractId(id);
+          setIsProfileMenuOpen(false);
+        }}
+        onDownloadExcel={handleDownloadExcel}
+        downloadingExcel={downloadingExcel}
+        onLogout={handleLogout}
+      />
+
+      {renderLogoutModal()}
     </div>
   );
 }

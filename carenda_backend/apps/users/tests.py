@@ -18,8 +18,11 @@ from apps.users.models import User, UserSetting
 def make_tg_init_data(
     user_dict: dict,
     bot_token: str = getattr(settings, "TELEGRAM_BOT_TOKEN", "dev_bot_token_123456"),
-    auth_date: int = 1700000000,
+    auth_date: int | None = None,
 ) -> str:
+    from django.utils import timezone
+    if auth_date is None:
+        auth_date = int(timezone.now().timestamp())
     user_json = json.dumps(user_dict, separators=(",", ":"))
     params = [
         ("auth_date", str(auth_date)),
@@ -734,29 +737,28 @@ class AuthOnboardingRBACFlowTests(TestCase):
         )
 
         # New Telegram user with different telegram_id=1318702560 ALSO has username="XushboqovG"
-        user_payload = json.dumps({
+        init_data = make_tg_init_data({
             "id": 1318702560,
             "first_name": "G'AYRATJON",
             "last_name": "",
             "username": "XushboqovG",
         })
-        init_data = urllib.parse.urlencode({
-            "user": user_payload,
-            "hash": "fake_dev_hash",
-        })
 
         client = APIClient()
-        with override_settings(DEBUG=True):
-            res = client.get(
-                "/api/v1/bootstrap/",
-                HTTP_AUTHORIZATION=f"tma {init_data}",
-            )
-            self.assertEqual(res.status_code, status.HTTP_200_OK)
-            new_user = User.objects.get(telegram_id=1318702560)
-            self.assertNotEqual(new_user.username, "XushboqovG")
-            self.assertEqual(new_user.username, "XushboqovG_1318702560")
+        res = client.get(
+            "/api/v1/bootstrap/",
+            HTTP_AUTHORIZATION=f"tma {init_data}",
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        new_user = User.objects.get(telegram_id=1318702560)
+        self.assertNotEqual(new_user.username, "XushboqovG")
+        self.assertEqual(new_user.username, "XushboqovG_1318702560")
 
 
+from django.test import override_settings
+
+
+@override_settings(SUPERADMIN_TELEGRAM_IDS=[777000111])
 class SuperadminDashboardAPITests(TestCase):
     def setUp(self):
         from django.utils import timezone
@@ -832,16 +834,15 @@ class SuperadminDashboardAPITests(TestCase):
         from django.test import override_settings
 
         new_super_tg_id = 555666777
-        user_payload = json.dumps({
+        init_data = make_tg_init_data({
             "id": new_super_tg_id,
             "first_name": "Boss",
             "last_name": "Admin",
             "username": "boss_carenda",
         })
-        init_data = urllib.parse.urlencode({"user": user_payload, "hash": "fake"})
 
         anon = APIClient()
-        with override_settings(DEBUG=True, SUPERADMIN_TELEGRAM_IDS=[new_super_tg_id]):
+        with override_settings(SUPERADMIN_TELEGRAM_IDS=[new_super_tg_id]):
             res = anon.post(
                 "/api/v1/auth/telegram/",
                 {"initData": init_data},
@@ -932,4 +933,31 @@ class SuperadminDashboardAPITests(TestCase):
         self.expired_arendator.refresh_from_db()
         self.assertEqual(self.expired_arendator.plan, User.Plan.STANDARD)
         self.assertTrue(self.expired_arendator.is_subscription_active)
+
+    def test_auth_logout_endpoint(self):
+        # Anonymous logout call
+        anon = APIClient()
+        res_anon = anon.post("/api/v1/auth/logout/")
+        self.assertEqual(res_anon.status_code, 200)
+        self.assertTrue(res_anon.json()["success"])
+
+        # Authenticated user logout call
+        res_auth = self.client_free.post("/api/v1/auth/logout/")
+        self.assertEqual(res_auth.status_code, 200)
+        self.assertTrue(res_auth.json()["success"])
+
+    def test_auth_switch_role_endpoint(self):
+        # Ijarachi switches role
+        self.assertTrue(self.ijarachi.is_onboarded)
+        self.assertEqual(self.ijarachi.role, User.RoleChoices.IJARACHI)
+
+        res = self.client_ijarachi.post("/api/v1/auth/switch-role/")
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.json()["success"])
+
+        self.ijarachi.refresh_from_db()
+        self.assertFalse(self.ijarachi.is_onboarded)
+        self.assertFalse(self.ijarachi.is_registered)
+        self.assertIsNone(self.ijarachi.linked_arendator)
+
 

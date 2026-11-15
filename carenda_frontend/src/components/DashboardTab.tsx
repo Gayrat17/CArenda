@@ -129,7 +129,7 @@ export function DashboardTab({
                 suppressHydrationWarning
                 className="px-2 py-0.5 text-[10px] font-bold uppercase bg-blue-100 text-blue-800 rounded-md"
               >
-                {user?.role === "superadmin" ? "Super Admin" : "Arendator"}
+                Arendator
               </span>
               {user?.tenant_code && (
                 <button
@@ -210,17 +210,6 @@ export function DashboardTab({
                 ? `${dashboard?.active_contracts_count || 0} ta (Cheksiz)`
                 : `${dashboard?.active_contracts_count || 0} / 3 shartnoma`}
             </span>
-            {(user?.is_superuser || user?.is_superadmin || user?.role === "superadmin") && (
-              <button
-                type="button"
-                onClick={() => router.push("/superadmin")}
-                className="mt-0.5 inline-flex items-center gap-1 px-2.5 py-1 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-bold text-[10px] rounded-full shadow-xs transition active:scale-95 cursor-pointer"
-                title="Superadmin Panelni ochish"
-              >
-                <Crown className="w-3 h-3" />
-                <span>Superadmin</span>
-              </button>
-            )}
           </div>
         </div>
       </div>

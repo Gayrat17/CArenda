@@ -3,9 +3,9 @@
 import React, { useState } from "react";
 import { X, Car as CarIcon, PlusCircle } from "lucide-react";
 import { createCar } from "@/lib/api";
+import { UzbekLicensePlateInput } from "@/components/UzbekLicensePlateInput";
 import {
-  formatPlateNumber,
-  isValidPlateNumber,
+  getUzbekPlateInfo,
   formatMoneyInput,
   parseMoneyValue,
 } from "@/lib/utils";
@@ -45,7 +45,13 @@ export function AddCarModal({
       return;
     }
 
-    if (!isValidPlateNumber(plateNumber)) {
+    const plateInfo = getUzbekPlateInfo(plateNumber);
+    if (plateInfo.hasRegion && !plateInfo.isRegionValid) {
+      setError("Davlat raqamida mavjud bo'lmagan hudud kodi kiritildi.");
+      return;
+    }
+
+    if (!plateInfo.isValid) {
       setError("Davlat raqami formati noto'g'ri. Namuna: 01 A 777 AA yoki 01 777 AAA");
       return;
     }
@@ -78,7 +84,7 @@ export function AddCarModal({
               <CarIcon className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-semibold text-slate-900 text-base">Yangi mashina qo'shish</h3>
+              <h3 className="font-semibold text-slate-900 text-base">Yangi mashina qo&apos;shish</h3>
               <p className="text-xs text-slate-500">
                 Limit: {carsCount} / {carsLimit} mashina
               </p>
@@ -95,7 +101,7 @@ export function AddCarModal({
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
           {!canAddCar && (
             <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-xl">
-              ⚠️ Tarifingiz bo'yicha mashinalar limiti to'lgan yoki obuna muddati tugagan.
+              ⚠️ Tarifingiz bo&apos;yicha mashinalar limiti to&apos;lgan yoki obuna muddati tugagan.
             </div>
           )}
 
@@ -124,23 +130,11 @@ export function AddCarModal({
               <label className="block text-xs font-medium text-slate-700">
                 Davlat raqami (Plate number) *
               </label>
-              {plateNumber && (
-                <span
-                  className={`text-[10px] font-semibold ${
-                    isValidPlateNumber(plateNumber) ? "text-emerald-600" : "text-amber-600"
-                  }`}
-                >
-                  {isValidPlateNumber(plateNumber) ? "✓ To'g'ri format" : "Format: 01 A 777 AA"}
-                </span>
-              )}
             </div>
-            <input
-              type="text"
-              required
+            <UzbekLicensePlateInput
               value={plateNumber}
-              onChange={(e) => setPlateNumber(formatPlateNumber(e.target.value))}
-              placeholder="01 A 777 AA"
-              className="w-full px-3.5 py-2.5 text-sm font-mono font-bold uppercase bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              onChange={setPlateNumber}
+              required
             />
           </div>
 

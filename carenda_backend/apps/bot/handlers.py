@@ -1,4 +1,5 @@
 import logging
+import os
 from datetime import timedelta
 
 from aiogram import F, Router
@@ -8,6 +9,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
     BufferedInputFile,
     CallbackQuery,
+    FSInputFile,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     KeyboardButton,
@@ -56,13 +58,13 @@ def get_role_selection_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
-def get_contact_request_keyboard() -> ReplyKeyboardMarkup:
-    """Reply keyboard with request_contact=True for mandatory phone registration."""
+def get_phone_kb() -> ReplyKeyboardMarkup:
+    """Reply keyboard with request_contact=True. Appears only when phone is needed."""
     return ReplyKeyboardMarkup(
         keyboard=[
             [
                 KeyboardButton(
-                    text="📞 Telefon raqamni yuborish",
+                    text="📱 Telefon raqamni yuborish",
                     request_contact=True,
                 )
             ]
@@ -70,6 +72,27 @@ def get_contact_request_keyboard() -> ReplyKeyboardMarkup:
         resize_keyboard=True,
         one_time_keyboard=True,
     )
+
+
+get_contact_request_keyboard = get_phone_kb
+
+
+def get_webapp_kb(url: str | None = None) -> InlineKeyboardMarkup:
+    """Inline WebApp keyboard with dynamic URL."""
+    target_url = url or get_webapp_url()
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🚗 Carenda'ni ochish",
+                    web_app=WebAppInfo(url=target_url),
+                )
+            ]
+        ]
+    )
+
+
+get_miniapp_inline_keyboard = get_webapp_kb
 
 
 def get_main_reply_keyboard() -> ReplyKeyboardMarkup:
@@ -84,20 +107,6 @@ def get_main_reply_keyboard() -> ReplyKeyboardMarkup:
             ],
         ],
         resize_keyboard=True,
-    )
-
-
-def get_miniapp_inline_keyboard() -> InlineKeyboardMarkup:
-    webapp_url = get_webapp_url()
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="🚀 Carenda",
-                    web_app=WebAppInfo(url=webapp_url),
-                )
-            ]
-        ]
     )
 
 
@@ -487,9 +496,84 @@ def match_and_register_user_driver(
 match_and_register_client_driver = match_and_register_user_driver
 
 
+@sync_to_async
+def save_user_phone(from_user, phone_number: str) -> User:
+    """Saves or updates phone number for user and links matching driver if exists."""
+    tg_id = from_user.id
+    first_name = getattr(from_user, "first_name", "") or ""
+    last_name = getattr(from_user, "last_name", "") or ""
+    full_name = f"{first_name} {last_name}".strip() or getattr(from_user, "username", None) or f"tg_{tg_id}"
+    username = getattr(from_user, "username", None) or f"tg_{tg_id}"
+
+    cleaned_phone = phone_number.strip()
+    if not cleaned_phone.startswith("+"):
+        cleaned_phone = f"+{cleaned_phone}"
+    normalized_incoming = normalize_phone(cleaned_phone)
+
+    from apps.users.authentication import resolve_unique_username
+    safe_username = resolve_unique_username(username, tg_id)
+
+    user = User.objects.filter(telegram_id=tg_id).first()
+    if not user:
+        user = User.objects.create(
+            telegram_id=tg_id,
+            username=safe_username,
+            full_name=full_name,
+            first_name=first_name,
+            last_name=last_name,
+            phone=cleaned_phone,
+            phone_number=cleaned_phone,
+            is_registered=False,
+            is_onboarded=False,
+        )
+    else:
+        user.phone = cleaned_phone
+        user.phone_number = cleaned_phone
+        fields = ["phone", "phone_number"]
+        if full_name and (not user.full_name or user.full_name.startswith("tg_")):
+            user.full_name = full_name
+            fields.append("full_name")
+        if first_name and not user.first_name:
+            user.first_name = first_name
+            fields.append("first_name")
+        if last_name and not user.last_name:
+            user.last_name = last_name
+            fields.append("last_name")
+        user.save(update_fields=fields)
+
+    # Link with unlinked driver matching phone number
+    if normalized_incoming:
+        for driver in Driver.objects.filter(user__isnull=True):
+            if normalized_incoming in [normalize_phone(p) for p in driver.all_phones]:
+                driver.user = user
+                driver.save(update_fields=["user"])
+                if not user.parent_owner:
+                    user.parent_owner = driver.owner
+                    user.linked_arendator = driver.owner
+                    user.role = User.RoleChoices.IJARACHI
+                    user.save(update_fields=["parent_owner", "linked_arendator", "role"])
+                break
+
+    UserSetting.objects.get_or_create(owner=user)
+
+    from apps.fleet.services import invalidate_tenant_cache
+    owner_id = user.tenant_owner.id if user.tenant_owner else user.id
+    invalidate_tenant_cache(owner_id, tg_id)
+
+    return user
+
+
 # -----------------------------------------------------------------------------
 # Handlers
 # -----------------------------------------------------------------------------
+
+LOGO_ASSET_PATH = os.path.join(settings.BASE_DIR, "apps", "bot", "assets", "logo.jpg")
+
+
+async def send_welcome_banner(message: Message, text: str, reply_markup=None):
+    """Sends greeting message with clean HTML formatting."""
+    return await message.answer(text, parse_mode="HTML", reply_markup=reply_markup)
+
 
 @router.message(CommandStart())
 async def handle_start(message: Message, state: FSMContext):
@@ -500,64 +584,82 @@ async def handle_start(message: Message, state: FSMContext):
     super_user = await ensure_superadmin_user(message.from_user)
     user = super_user or await get_existing_user(message.from_user)
 
-    # 1. Already registered user check (or Superadmin bypassing unregistered phone block)
-    if user and ((user.is_registered and user.phone) or is_superadmin_telegram_id(tg_id)):
-        await state.clear()
-        if user.role in (User.RoleChoices.USER, User.RoleChoices.IJARACHI):
-            welcome_text = (
-                f"Assalomu alaykum, <b>{user.full_name}</b>!\n\n"
-                f"Carenda ijarachi kabinetiga xush kelibsiz.\n"
-                f"Pastdagi tugma orqali to'lovlar jadvalingiz va shartnomangizni ko'rishingiz mumkin:"
-            )
-            await message.answer(welcome_text, parse_mode="HTML")
-            await message.answer(
-                "Mijoz kabinetini ochish:",
-                reply_markup=get_client_miniapp_inline_keyboard(),
-            )
-            return
+    user_has_phone = bool(user and (user.phone or user.phone_number))
 
-        # Owner / Superadmin
-        super_line = (
-            "\n\n👑 <i>Superadmin sifatida /admin buyrug'i orqali boshqaruv panelini ochishingiz mumkin.</i>"
-            if (is_superadmin_telegram_id(tg_id) or user.is_superuser)
-            else ""
+    # 1. Agar raqami bo'lmasa: faqat bitta "📱 Telefon raqamni yuborish" tugmasini chiqarish
+    if not user_has_phone:
+        await state.clear()
+        await state.set_state(RegistrationStates.waiting_for_owner_phone)
+        prompt_text = (
+            f"Assalomu alaykum, <b>{message.from_user.full_name}</b>!\n\n"
+            "Tizimdan foydalanish uchun telefon raqamingizni tasdiqlang:"
         )
-        welcome_text = (
-            f"Assalomu alaykum, <b>{user.full_name}</b>!\n\n"
-            f"Carenda boshqaruv tizimiga xush kelibsiz.\n"
-            f"🔑 Maxsus kod: <b>{user.tenant_code}</b>\n"
-            f"<i>(Ushbu kodni haydovchilaringizga bering, ular tizimga ulanishi uchun)</i>\n\n"
-            f"Pastdagi tugmani bosing:{super_line}"
+        await send_welcome_banner(
+            message,
+            prompt_text,
+            reply_markup=get_phone_kb(),
         )
-        await message.answer(
-            welcome_text,
-            parse_mode="HTML",
-            reply_markup=get_main_reply_keyboard(),
-        )
-        await message.answer(
-            "Mini App'ni ishga tushirish:",
-            reply_markup=get_miniapp_inline_keyboard(),
-        )
-        if is_superadmin_telegram_id(tg_id) or user.is_superuser:
-            await message.answer(
-                "Superadmin paneliga tezkor kirish:",
-                reply_markup=get_superadmin_inline_keyboard(),
-            )
         return
 
-    # 2. Not registered yet -> Ask role selection
+    # 2. Agar bazada raqami allaqachon mavjud bo'lsa:
     await state.clear()
-    await state.set_state(RegistrationStates.waiting_for_role)
-    prompt_text = (
-        f"Assalomu alaykum, <b>{message.from_user.full_name}</b>!\n\n"
-        f"Carenda platformasiga xush kelibsiz.\n"
-        f"Iltimos, tizimdan foydalanish uchun o'z rolingizni tanlang:"
-    )
+
+    # Eski pastki tugmalar qolib ketgan bo'lsa, tozalab yuboramiz (o'chirmaymiz, aks holda Telegram tugmalarni qaytarib qo'yadi)
     await message.answer(
-        prompt_text,
+        "🚗 <b>Carenda</b>",
         parse_mode="HTML",
-        reply_markup=get_role_selection_keyboard(),
+        reply_markup=ReplyKeyboardRemove(),
     )
+
+    webapp_url = get_webapp_url()
+    if user and user.role in (User.RoleChoices.USER, User.RoleChoices.IJARACHI):
+        webapp_url = f"{webapp_url.rstrip('/')}/client"
+
+    kb_buttons = [
+        [
+            InlineKeyboardButton(
+                text="🚗 Carenda'ni ochish",
+                web_app=WebAppInfo(url=webapp_url),
+            )
+        ]
+    ]
+
+    if is_superadmin_telegram_id(tg_id) or (user and user.is_superuser):
+        admin_url = f"{get_webapp_url().rstrip('/')}/superadmin"
+        kb_buttons.append([
+            InlineKeyboardButton(
+                text="👑 Superadmin Panelni ochish",
+                web_app=WebAppInfo(url=admin_url),
+            )
+        ])
+
+    super_line = (
+        "\n\n👑 <i>Superadmin sifatida boshqaruv paneliga kirish uchun /admin buyrug'idan ham foydalanishingiz mumkin.</i>"
+        if (is_superadmin_telegram_id(tg_id) or (user and user.is_superuser))
+        else ""
+    )
+
+    tenant_code_line = (
+        f"\n🔑 Maxsus kodingiz: <b>{user.tenant_code}</b>\n"
+        if (user and getattr(user, "tenant_code", None) and user.role == User.RoleChoices.ARENDATOR)
+        else ""
+    )
+
+    welcome_text = (
+        f"Assalomu alaykum, <b>{user.full_name}</b>!\n\n"
+        f"Carenda tizimiga xush kelibsiz!{tenant_code_line}"
+        f"Quyidagi tugma orqali ilovani oching:{super_line}"
+    )
+
+    await send_welcome_banner(
+        message,
+        welcome_text,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_buttons),
+    )
+
+
+cmd_start = handle_start
+
 
 
 @router.message(Command("admin"))
@@ -566,14 +668,14 @@ async def handle_admin_command(message: Message):
         return
     super_user = await ensure_superadmin_user(message.from_user)
     if not super_user:
-        await message.answer("⛔ Sizda Superadmin paneliga kirish huquqi mavjud emas.")
+        await message.answer("⛔ Sizda Superadmin paneliga kirish huquqi mavjud emas.", reply_markup=ReplyKeyboardRemove())
         return
 
-    await message.answer(
+    await send_welcome_banner(
+        message,
         "👑 <b>Carenda Superadmin Paneli</b>\n\n"
         "Arendatorlarni nazorat qilish, hisoblarni muzlatish, obunalarni faollashtirish va "
         "tarif/Paynet sozlamalarini boshqarish uchun quyidagi tugmani bosing:",
-        parse_mode="HTML",
         reply_markup=get_superadmin_inline_keyboard(),
     )
 
@@ -604,27 +706,42 @@ async def handle_owner_contact(message: Message, state: FSMContext):
         if isinstance(contact_user_id, int) and contact_user_id != message.from_user.id:
             await message.answer(
                 "⚠️ Iltimos, boshqa birovning emas, o'zingizning telefon raqamingizni yuboring:",
-                reply_markup=get_contact_request_keyboard(),
+                reply_markup=get_phone_kb(),
             )
             return
 
         user = await register_owner_user(message.from_user, message.contact.phone_number)
         await state.clear()
 
-        success_text = (
-            f"Rahmat, <b>{user.full_name}</b>! Siz Arendator sifatida muvaffaqiyatli ro'yxatdan o'tdingiz ✅\n\n"
-            f"🔑 Sizning maxsus kodingiz: <b>{user.tenant_code}</b>\n"
-            f"<i>Ushbu kodni haydovchilaringizga (ijarachilarga) bering, ular tizimga ulanishi uchun kerak bo'ladi.</i>\n\n"
-            f"Quyidagi tugma orqali ilovani ochishingiz mumkin:"
-        )
+        # Pastdagi tugmani butunlay yo'qotish
         await message.answer(
-            success_text,
-            parse_mode="HTML",
-            reply_markup=get_main_reply_keyboard(),
+            "✅ Telefon raqamingiz qabul qilindi!",
+            reply_markup=ReplyKeyboardRemove(),
         )
+
+        webapp_url = get_webapp_url()
+        kb_buttons = [
+            [
+                InlineKeyboardButton(
+                    text="🚗 Carenda'ni ochish",
+                    web_app=WebAppInfo(url=webapp_url),
+                )
+            ]
+        ]
+        tg_id = message.from_user.id
+        if is_superadmin_telegram_id(tg_id) or (user and user.is_superuser):
+            admin_url = f"{get_webapp_url().rstrip('/')}/superadmin"
+            kb_buttons.append([
+                InlineKeyboardButton(
+                    text="👑 Superadmin Panelni ochish",
+                    web_app=WebAppInfo(url=admin_url),
+                )
+            ])
+
+        # Mini App tugmasini chiqarish
         await message.answer(
-            "Mini App'ni ochish:",
-            reply_markup=get_miniapp_inline_keyboard(),
+            "Endi ilovani ochishingiz mumkin:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_buttons),
         )
     except Exception:
         logger.exception("Error in handle_owner_contact")
@@ -634,9 +751,9 @@ async def handle_owner_contact(message: Message, state: FSMContext):
 @router.message(RegistrationStates.waiting_for_owner_phone)
 async def handle_owner_phone_non_contact(message: Message):
     await message.answer(
-        "📱 Iltimos, telefon raqamingizni qo'lda yozmasdan, pastdagi <b>«📞 Telefon raqamni yuborish»</b> tugmasini bosing:",
+        "📱 Iltimos, telefon raqamingizni qo'lda yozmasdan, pastdagi <b>«📱 Telefon raqamni yuborish»</b> tugmasini bosing:",
         parse_mode="HTML",
-        reply_markup=get_contact_request_keyboard(),
+        reply_markup=get_phone_kb(),
     )
 
 
@@ -795,73 +912,70 @@ async def handle_user_phone_non_contact(message: Message):
 async def handle_general_contact(message: Message, state: FSMContext):
     if not message.from_user or not message.contact:
         return
+
+    contact_user_id = getattr(message.contact, "user_id", None)
+    if isinstance(contact_user_id, int) and contact_user_id != message.from_user.id:
+        await message.answer(
+            "⚠️ Iltimos, boshqa birovning emas, o'zingizning telefon raqamingizni yuboring:",
+            reply_markup=get_phone_kb(),
+        )
+        return
+
     current_state = await state.get_state()
     if current_state == RegistrationStates.waiting_for_user_phone.state:
         await handle_user_contact(message, state)
         return
-    if current_state == RegistrationStates.waiting_for_owner_phone.state:
-        await handle_owner_contact(message, state)
-        return
 
-    # User sent contact without active state (e.g. from Mini App requestContact or direct share)
-    contact_user_id = getattr(message.contact, "user_id", None)
-    if isinstance(contact_user_id, int) and contact_user_id != message.from_user.id:
+    raw_phone = message.contact.phone_number
+    user = await save_user_phone(message.from_user, raw_phone)
+    await state.clear()
+
+    webapp_url = get_webapp_url()
+    if user and user.role in (User.RoleChoices.USER, User.RoleChoices.IJARACHI):
+        webapp_url = f"{webapp_url.rstrip('/')}/client"
+
+    kb_buttons = [
+        [
+            InlineKeyboardButton(
+                text="🚗 Carenda'ni ochish",
+                web_app=WebAppInfo(url=webapp_url),
+            )
+        ]
+    ]
+
+    tg_id = message.from_user.id
+    if is_superadmin_telegram_id(tg_id) or (user and user.is_superuser):
+        admin_url = f"{get_webapp_url().rstrip('/')}/superadmin"
+        kb_buttons.append([
+            InlineKeyboardButton(
+                text="👑 Superadmin Panelni ochish",
+                web_app=WebAppInfo(url=admin_url),
+            )
+        ])
+
+    if not user.is_onboarded:
         await message.answer(
-            "⚠️ Iltimos, boshqa birovning emas, o'zingizning telefon raqamingizni yuboring.",
+            f"✅ Telefon raqamingiz qabul qilindi: <b>{user.phone}</b>.\n\n"
+            "Endi Mini App ilovasiga qaytib ro'yxatdan o'tishni yakunlang.",
+            parse_mode="HTML",
+            reply_markup=ReplyKeyboardRemove(),
         )
         return
 
-    user = await get_existing_user(message.from_user.id)
-    raw_phone = message.contact.phone_number.strip()
-    cleaned_phone = raw_phone if raw_phone.startswith("+") else f"+{raw_phone}"
-
-    if user:
-        from apps.fleet.services import invalidate_tenant_cache
-        owner_id = user.tenant_owner.id if user.tenant_owner else user.id
-
-        # If user hasn't finished WebApp onboarding yet, ONLY save phone number!
-        # Do NOT force is_onboarded=True or assume default Arendator role!
-        if not user.is_onboarded:
-            user.phone = cleaned_phone
-            user.phone_number = cleaned_phone
-            await sync_to_async(user.save)(update_fields=["phone", "phone_number"])
-            await sync_to_async(invalidate_tenant_cache)(owner_id, user.telegram_id)
-            await message.answer(
-                f"✅ Telefon raqamingiz qabul qilindi: <b>{cleaned_phone}</b>.\n\n"
-                "Endi Mini App ilovasiga qaytib ro'yxatdan o'tishni yakunlang.",
-                parse_mode="HTML",
-            )
-            return
-
-        user.phone = cleaned_phone
-        user.phone_number = cleaned_phone
-        await sync_to_async(user.save)(update_fields=["phone", "phone_number"])
-        await sync_to_async(invalidate_tenant_cache)(owner_id, user.telegram_id)
-
-        role = (user.role or "").lower()
-        if role in (User.RoleChoices.IJARACHI, User.RoleChoices.USER):
-            await message.answer(
-                f"✅ Telefon raqamingiz muvaffaqiyatli yangilandi: <b>{cleaned_phone}</b>.\n\n"
-                "Quyidagi tugma orqali to'lovlar jadvalingizni ko'rishingiz mumkin:",
-                parse_mode="HTML",
-                reply_markup=get_client_miniapp_inline_keyboard(),
-            )
-        else:
-            await message.answer(
-                f"✅ Telefon raqamingiz muvaffaqiyatli yangilandi: <b>{cleaned_phone}</b>.\n\n"
-                "Mini App'ni ochishingiz mumkin:",
-                parse_mode="HTML",
-                reply_markup=get_miniapp_inline_keyboard(),
-            )
-        return
-
-    # If user does NOT exist in DB at all, DO NOT default to owner! Prompt to choose role!
-    await state.clear()
+    # Pastdagi tugmani butunlay yo'qotish
     await message.answer(
-        "Assalomu alaykum! CArenda tizimiga xush kelibsiz.\n\n"
-        "Iltimos, avval rolingizni tanlang:",
-        reply_markup=get_role_selection_keyboard(),
+        "✅ Telefon raqamingiz qabul qilindi!",
+        reply_markup=ReplyKeyboardRemove(),
     )
+
+    # Mini App tugmasini chiqarish
+    await message.answer(
+        "Endi ilovani ochishingiz mumkin:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_buttons),
+    )
+
+
+handle_contact = handle_general_contact
 
 
 # --- Arendator Reply Keyboard Commands ---
@@ -894,12 +1008,20 @@ async def handle_overdue_list(message: Message):
             "🎉 <b>Hozircha kechikkan yoki bugungi to'lovlar mavjud emas!</b>\n"
             "Barcha to'lovlar to'liq va o'z vaqtida amalga oshirilgan.",
             parse_mode="HTML",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        await message.answer(
+            "Boshqaruv panelini ochish uchun:",
             reply_markup=get_miniapp_inline_keyboard(),
         )
     else:
         await message.answer(
             summary_text,
             parse_mode="HTML",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        await message.answer(
+            "Boshqaruv panelini ochish uchun:",
             reply_markup=get_miniapp_inline_keyboard(),
         )
 
@@ -934,6 +1056,7 @@ async def handle_excel_export(message: Message):
         document=document,
         caption="📊 <b>Carenda</b> — Mashinalar, shartnomalar va to'lovlar jadvali hisoboti.",
         parse_mode="HTML",
+        reply_markup=ReplyKeyboardRemove(),
     )
 
 
@@ -1026,6 +1149,10 @@ async def handle_subscription_info(message: Message):
     await message.answer(
         sub_text,
         parse_mode="HTML",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+    await message.answer(
+        "Mini App ilovasini ochish:",
         reply_markup=get_miniapp_inline_keyboard(),
     )
 
@@ -1200,5 +1327,5 @@ async def handle_fallback_text(message: Message, state: FSMContext):
         logger.exception("Error in handle_fallback_text")
         await message.answer(
             "Iltimos, davom etish uchun /start buyrug'ini bosing.",
-            reply_markup=get_role_selection_keyboard(),
+            reply_markup=ReplyKeyboardRemove(),
         )

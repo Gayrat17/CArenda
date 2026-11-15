@@ -4,9 +4,57 @@ from rest_framework import serializers
 
 from apps.fleet.models import Car, Contract, Driver, Payment
 
-UZBEK_PLATE_REGEX = re.compile(
-    r"^(?:\d{2}[A-Z]\d{3}[A-Z]{2}|\d{2}\d{3}[A-Z]{3}|\d{2}\d{4}[A-Z]{2})$"
+UZBEK_PHONE_REGEX = re.compile(
+    r"^\+998(90|91|93|94|95|97|98|99|33|50|55|71|77|78|88)\d{7}$"
 )
+
+UZBEK_CAR_NUMBER_REGEX = re.compile(
+    r"^(01|10|20|25|30|40|50|60|70|75|80|85|90|95)\s?([A-Z]\s?\d{3}\s?[A-Z]{2}|\d{3}\s?[A-Z]{3})$"
+)
+
+CYRILLIC_TO_LATIN = {
+    "А": "A", "В": "B", "С": "C", "Е": "E", "Н": "H", "К": "K",
+    "М": "M", "О": "O", "Р": "P", "Т": "T", "Х": "X", "У": "Y",
+}
+
+
+def validate_phone(value: str) -> str:
+    """
+    Validates Uzbekistan phone number strictly against official operator codes.
+    Requires format +998XXXXXXXXX.
+    """
+    if not value or not str(value).strip():
+        raise serializers.ValidationError("Telefon raqami kiritilishi shart.")
+    clean = re.sub(r"[\s\(\)\-]", "", str(value).strip())
+    if not clean.startswith("+") and clean.startswith("998"):
+        clean = "+" + clean
+    if not UZBEK_PHONE_REGEX.match(clean):
+        raise serializers.ValidationError(
+            "Telefon raqami noto'g'ri. Namuna: +998901234567 (haqiqiy O'zbekiston operator kodi bilan)."
+        )
+    return clean
+
+
+def validate_car_number(value: str) -> str:
+    """
+    Validates Uzbekistan car license plate strictly against official region codes and patterns:
+    - Individual: 01 A 777 AA (or 01A777AA)
+    - Legal entity: 01 777 AAA (or 01777AAA)
+    """
+    if not value or not str(value).strip():
+        raise serializers.ValidationError("Davlat raqami kiritilishi shart.")
+    clean = str(value).strip().upper()
+    for cyr, lat in CYRILLIC_TO_LATIN.items():
+        clean = clean.replace(cyr, lat)
+    clean = re.sub(r"\s+", " ", clean)
+    if not UZBEK_CAR_NUMBER_REGEX.match(clean):
+        raise serializers.ValidationError(
+            "Davlat raqami formati noto'g'ri. Namuna: 01 A 777 AA yoki 01 777 AAA"
+        )
+    return clean
+
+
+UZBEK_PLATE_REGEX = UZBEK_CAR_NUMBER_REGEX
 
 
 class DriverSerializer(serializers.ModelSerializer):
@@ -22,6 +70,14 @@ class DriverSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = ["id", "created_at"]
+
+    def validate_phone(self, value):
+        return validate_phone(value)
+
+    def validate_secondary_phone(self, value):
+        if not value or not str(value).strip():
+            return ""
+        return validate_phone(value)
 
 
 class PaymentSerializer(serializers.ModelSerializer):
@@ -221,15 +277,11 @@ class CarCreateUpdateSerializer(serializers.ModelSerializer):
             "notes": {"required": False, "allow_blank": True},
         }
 
+    def validate_car_number(self, value):
+        return validate_car_number(value)
+
     def validate_plate_number(self, value):
-        if not value:
-            raise serializers.ValidationError("Davlat raqami kiritilishi shart.")
-        clean_plate = re.sub(r"\s+", "", value.strip().upper())
-        if not UZBEK_PLATE_REGEX.match(clean_plate):
-            raise serializers.ValidationError(
-                "Davlat raqami formati noto'g'ri. Namuna: 01 A 777 AA yoki 01 777 AAA"
-            )
-        return value.strip().upper()
+        return validate_car_number(value)
 
 
 class CalculateContractSerializer(serializers.Serializer):
@@ -265,6 +317,27 @@ class ContractCreateSerializer(serializers.Serializer):
     payment_day = serializers.IntegerField(min_value=1, max_value=31)
     start_date = serializers.DateField()
 
+    def validate_phone(self, value):
+        return validate_phone(value)
+
+    def validate_driver_phone(self, value):
+        if not value or not str(value).strip():
+            return value
+        return validate_phone(value)
+
+    def validate_driver_secondary_phone(self, value):
+        if not value or not str(value).strip():
+            return ""
+        return validate_phone(value)
+
+    def validate_car_number(self, value):
+        return validate_car_number(value)
+
+    def validate_plate_number(self, value):
+        if not value or not str(value).strip():
+            return value
+        return validate_car_number(value)
+
     def validate(self, data):
         car_id = data.get("car_id")
         car_name = (data.get("car_name") or "").strip()
@@ -275,21 +348,28 @@ class ContractCreateSerializer(serializers.Serializer):
                 raise serializers.ValidationError(
                     "Mashina tanlang yoki yangi mashina ma'lumotlarini (nomi va davlat raqami) kiriting."
                 )
-            clean_plate = re.sub(r"\s+", "", plate_number.upper())
-            if not UZBEK_PLATE_REGEX.match(clean_plate):
-                raise serializers.ValidationError(
-                    "Davlat raqami formati noto'g'ri. Namuna: 01 A 777 AA yoki 01 777 AAA"
-                )
+            data["plate_number"] = validate_car_number(plate_number)
 
         driver_id = data.get("driver_id")
         full_name = (data.get("driver_full_name") or "").strip()
         phone = (data.get("driver_phone") or "").strip()
 
-        if not driver_id and (not full_name or not phone):
-            raise serializers.ValidationError(
-                "Mavjud haydovchini tanlang yoki yangi haydovchi ism-familiyasi va telefon raqamini kiriting."
-            )
+        if not driver_id:
+            if not full_name or not phone:
+                raise serializers.ValidationError(
+                    "Mavjud haydovchini tanlang yoki yangi haydovchi ism-familiyasi va telefon raqamini kiriting."
+                )
+            data["driver_phone"] = validate_phone(phone)
+
+        if data.get("driver_secondary_phone"):
+            data["driver_secondary_phone"] = validate_phone(data["driver_secondary_phone"])
+
         return data
+
+
+# Common aliases
+ContractSerializer = ContractCreateSerializer
+CarSerializer = CarCreateUpdateSerializer
 
 
 class RecordPaymentSerializer(serializers.Serializer):

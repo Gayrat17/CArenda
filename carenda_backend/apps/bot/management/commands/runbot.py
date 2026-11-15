@@ -27,6 +27,20 @@ def get_fsm_storage():
     return MemoryStorage()
 
 
+async def ensure_bot_profile_photo(bot: Bot):
+    """Sets official Carenda logo as the Telegram bot profile avatar if available."""
+    import os
+    from aiogram.types import FSInputFile, InputProfilePhotoStatic
+    logo_path = os.path.join(settings.BASE_DIR, "apps", "bot", "assets", "logo.jpg")
+    if os.path.exists(logo_path):
+        try:
+            photo = FSInputFile(logo_path)
+            await bot.set_my_profile_photo(photo=InputProfilePhotoStatic(photo=photo))
+            logger.info("Bot profile photo successfully synchronized from %s", logo_path)
+        except Exception as e:
+            logger.debug("Bot profile photo update skipped or already current: %s", e)
+
+
 async def main():
     logging.basicConfig(level=logging.INFO)
 
@@ -45,6 +59,9 @@ async def main():
         await bot.delete_webhook(drop_pending_updates=False)
     except Exception as e:
         logger.warning("Could not delete webhook before polling: %s", e)
+
+    # Synchronize bot profile avatar (logo)
+    await ensure_bot_profile_photo(bot)
 
     # Initialize APScheduler for daily 09:00 alerts in Tashkent timezone
     scheduler = AsyncIOScheduler(timezone="Asia/Tashkent")

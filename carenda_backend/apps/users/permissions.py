@@ -1,5 +1,5 @@
-from rest_framework.permissions import BasePermission
-from apps.users.models import User
+from rest_framework.permissions import BasePermission, SAFE_METHODS
+from apps.users.models import User, is_superadmin_telegram_id
 
 
 class IsOnboarded(BasePermission):
@@ -14,15 +14,21 @@ class IsOnboarded(BasePermission):
         user = getattr(request, "user", None)
         if not user or not user.is_authenticated:
             return False
-        if getattr(user, "is_superuser", False) or getattr(user, "role", "") == User.RoleChoices.SUPERADMIN:
+        if getattr(user, "is_superuser", False) or is_superadmin_telegram_id(getattr(user, "telegram_id", None)):
             return True
         phone = getattr(user, "phone_number", None) or getattr(user, "phone", None)
-        return bool(getattr(user, "is_onboarded", False) and phone)
+        if not phone:
+            return False
+        role = (getattr(user, "role", "") or "").lower()
+        if role in (User.RoleChoices.ARENDATOR, "owner"):
+            return True
+        return bool(getattr(user, "is_onboarded", False))
 
 
-class IsArendator(BasePermission):
+class IsArendatorOnly(BasePermission):
     """
-    Allows access only to Arendator owners or superadmins (blocks user / ijarachi drivers).
+    Allows access strictly to Arendator owners (blocks user / ijarachi drivers).
+    Superadmins can access.
     """
     message = "Ushbu bo'lim faqat arendatorlar uchun mo'ljallangan. Ijarachilar uchun ruxsat etilmagan."
 
@@ -30,7 +36,7 @@ class IsArendator(BasePermission):
         user = getattr(request, "user", None)
         if not user or not user.is_authenticated:
             return False
-        if getattr(user, "is_superuser", False) or getattr(user, "role", "") == User.RoleChoices.SUPERADMIN:
+        if getattr(user, "is_superuser", False) or is_superadmin_telegram_id(getattr(user, "telegram_id", None)):
             return True
         role = (getattr(user, "role", "") or "").lower()
         if role in (User.RoleChoices.IJARACHI, User.RoleChoices.USER):
@@ -38,31 +44,73 @@ class IsArendator(BasePermission):
         return role in (User.RoleChoices.ARENDATOR, "owner")
 
 
-class IsIjarachi(BasePermission):
+IsArendator = IsArendatorOnly
+
+
+class IsIjarachiOnly(BasePermission):
     """
-    Allows access only to Ijarachi (client/lessee) accounts.
+    Strictly restricts endpoints to Ijarachi accounts in read-only (SAFE_METHODS) mode.
+    Mutating methods (POST, PUT, PATCH, DELETE) are rejected.
     """
-    message = "Ushbu bo'lim faqat mijozlar (ijarachilar) uchun mo'ljallangan."
+    message = "Ushbu bo'lim faqat mijozlar (ijarachilar) uchun faqat ko'rish rejimida mo'ljallangan."
 
     def has_permission(self, request, view):
         user = getattr(request, "user", None)
         if not user or not user.is_authenticated:
             return False
-        if getattr(user, "is_superuser", False):
+        if request.method not in SAFE_METHODS:
+            return False
+        if getattr(user, "is_superuser", False) or is_superadmin_telegram_id(getattr(user, "telegram_id", None)):
             return True
         role = (getattr(user, "role", "") or "").lower()
         return role in (User.RoleChoices.IJARACHI, User.RoleChoices.USER)
 
 
-class IsSuperAdmin(BasePermission):
+IsIjarachi = IsIjarachiOnly
+
+
+class IsSuperAdminUser(BasePermission):
     """
-    Allows access ONLY to Superadmins (is_superuser=True, role='superadmin',
-    or telegram_id in SUPERADMIN_TELEGRAM_IDS / ADMIN_TELEGRAM_ID).
+    Allows access strictly to verified Superadmins:
+    bool(request.user and request.user.is_authenticated and (request.user.is_superuser or request.user.role == 'superadmin'))
     """
-    message = "Ushbu bo'lim faqat Superadmin uchun mo'ljallangan."
+    message = "Ushbu bo'lim faqat vakolatli Superadmin uchun mo'ljallangan."
 
     def has_permission(self, request, view):
         user = getattr(request, "user", None)
         if not user or not user.is_authenticated:
             return False
-        return bool(getattr(user, "is_superadmin", False))
+        return bool(
+            getattr(user, "is_superuser", False)
+            or getattr(user, "role", "") == User.RoleChoices.SUPERADMIN
+            or getattr(user, "role", "") == "superadmin"
+            or is_superadmin_telegram_id(getattr(user, "telegram_id", None))
+        )
+
+
+IsSuperAdmin = IsSuperAdminUser
+IsSuperAdminOnly = IsSuperAdminUser
+
+
+class IsActiveSubscriptionOrTrial(BasePermission):
+    """
+    Blocks all mutating requests (POST, PUT, PATCH, DELETE) for Arendators
+    if is_frozen=True or their subscription (free trial or standart) has expired.
+    Read-only (SAFE_METHODS) requests are allowed so the lessor can view existing data.
+    Superusers bypass this check.
+    """
+    message = "Hisobingiz muzlatilgan yoki obuna muddati tugagan. Ushbu amalni bajarish uchun obunani yangilang."
+
+    def has_permission(self, request, view):
+        user = getattr(request, "user", None)
+        if not user or not user.is_authenticated:
+            return False
+        if getattr(user, "is_superuser", False) or is_superadmin_telegram_id(getattr(user, "telegram_id", None)):
+            return True
+        if request.method in SAFE_METHODS:
+            return True
+        owner = getattr(user, "tenant_owner", user)
+        if getattr(owner, "is_frozen", False):
+            return False
+        return bool(getattr(owner, "is_subscription_active", False))
+

@@ -56,6 +56,7 @@ class User(AbstractUser):
         max_length=20,
         choices=RoleChoices.choices,
         default=RoleChoices.ARENDATOR,
+        db_index=True,
         verbose_name="Foydalanuvchi roli",
     )
     parent_owner = models.ForeignKey(
@@ -107,8 +108,14 @@ class User(AbstractUser):
     )
     is_frozen = models.BooleanField(
         default=False,
+        db_index=True,
         verbose_name="Muzlatilgan (Frozen)",
         help_text="Superadmin tomonidan muzlatilgan yoki to'lov qilinmagan",
+    )
+    can_monitor_renters = models.BooleanField(
+        default=True,
+        verbose_name="Mijozlar monitoringi ruxsati",
+        help_text="Arendator o'z mijozlarining to'lovlarini va monitoringini ko'rish ruxsati",
     )
     telegram_id = models.BigIntegerField(
         unique=True,
@@ -125,12 +132,14 @@ class User(AbstractUser):
     phone = models.CharField(
         max_length=25,
         blank=True,
+        db_index=True,
         verbose_name="Phone Number",
     )
     phone_number = models.CharField(
         max_length=25,
         blank=True,
         default="",
+        db_index=True,
         verbose_name="Telefon raqam",
     )
     plan = models.CharField(

@@ -60,7 +60,32 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-CORS_ALLOW_ALL_ORIGINS = True
+# CORS & CSRF Hardening
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https:\/\/.*\.loca\.lt$",
+    r"^https:\/\/.*\.ngrok-free\.app$",
+    r"^https:\/\/.*\.ngrok\.io$",
+]
+
+CORS_ALLOWED_ORIGINS = config(
+    'CORS_ALLOWED_ORIGINS',
+    default='http://localhost:3000,http://127.0.0.1:3000,http://localhost:8000,http://127.0.0.1:8000',
+    cast=lambda v: [s.strip() for s in v.split(',') if s.strip()],
+)
+
+_env_webapp_url = config('WEBAPP_URL', default='').strip()
+if _env_webapp_url and _env_webapp_url not in CORS_ALLOWED_ORIGINS:
+    CORS_ALLOWED_ORIGINS.append(_env_webapp_url)
+
+CSRF_TRUSTED_ORIGINS = config(
+    'CSRF_TRUSTED_ORIGINS',
+    default='http://localhost:3000,http://127.0.0.1:3000,http://localhost:8000,http://127.0.0.1:8000',
+    cast=lambda v: [s.strip() for s in v.split(',') if s.strip()],
+)
+if _env_webapp_url and _env_webapp_url not in CSRF_TRUSTED_ORIGINS:
+    CSRF_TRUSTED_ORIGINS.append(_env_webapp_url)
+
+CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=False, cast=bool)
 
 ROOT_URLCONF = 'config.urls'
 
@@ -259,6 +284,8 @@ DEFAULT_PAYME_URL = config('NEXT_PUBLIC_PAYME_P2P_URL', default='')
 DEFAULT_CARD_NUMBER = config('NEXT_PUBLIC_ADMIN_CARD_NUMBER', default='')
 DEFAULT_CARD_HOLDER = config('NEXT_PUBLIC_ADMIN_CARD_HOLDER', default='')
 
+TELEGRAM_INIT_DATA_MAX_AGE = config("TELEGRAM_INIT_DATA_MAX_AGE", default=3600, cast=int)
+
 # Django Rest Framework Configuration
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
@@ -268,5 +295,16 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '120/minute',
+        'user': '300/minute',
+        'invite_code': '5/minute',
+        'auth': '10/minute',
+        'sensitive': '5/minute',
+    },
 }
 

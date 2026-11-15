@@ -154,8 +154,24 @@ class TelegramWebAppAuthentication(BaseAuthentication):
         ).hexdigest()
 
         if not hmac.compare_digest(calculated_hash, received_hash):
-            if not settings.DEBUG:
-                raise AuthenticationFailed("Invalid Telegram signature")
+            raise AuthenticationFailed("Invalid Telegram signature")
+
+        # Anti-Replay: Validate auth_date freshness
+        auth_date_raw = data_dict.get("auth_date")
+        if not auth_date_raw:
+            raise AuthenticationFailed("Telegram initData auth_date missing")
+        try:
+            auth_date = int(auth_date_raw)
+        except (ValueError, TypeError):
+            raise AuthenticationFailed("Invalid auth_date in Telegram initData")
+
+        now_ts = int(timezone.now().timestamp())
+        max_age = getattr(settings, "TELEGRAM_INIT_DATA_MAX_AGE", 3600)
+        if max_age > 0:
+            if now_ts - auth_date > max_age:
+                raise AuthenticationFailed("Telegram initData has expired (replay attack protection)")
+            if auth_date - now_ts > 120:
+                raise AuthenticationFailed("Telegram initData auth_date is in the future")
 
         user_raw = data_dict.get("user")
         if not user_raw:

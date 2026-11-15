@@ -6,7 +6,7 @@ from decimal import Decimal
 from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import Count, Prefetch, Q, Sum
+from django.db.models import Count, Min, Prefetch, Q, Sum
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -42,7 +42,17 @@ from apps.fleet.services import (
     postpone_contract_payments_service,
     record_payment_service,
 )
-from apps.fleet.permissions import IsArendator, IsIjarachi, IsOnboarded
+from apps.fleet.permissions import (
+    IsActiveSubscriptionOrTrial,
+    IsArendator,
+    IsArendatorOnly,
+    IsIjarachi,
+    IsIjarachiOnly,
+    IsOnboarded,
+    IsSuperAdmin,
+    IsSuperAdminOnly,
+)
+from apps.users.throttling import SensitiveActionThrottle
 from apps.users.models import User, UserSetting
 from apps.users.serializers import UserMeSerializer
 
@@ -125,16 +135,22 @@ def get_dashboard_data_for_owner(owner, today=None):
         .order_by("due_date")
     )
 
+    # Precompute minimum unpaid month per contract in 1 single query to avoid N+1 queries
+    min_unpaid_months = dict(
+        Payment.objects.filter(contract__owner=owner)
+        .exclude(status=Payment.Status.PAID)
+        .values("contract_id")
+        .annotate(min_m=Min("month_number"))
+        .values_list("contract_id", "min_m")
+    )
+
     total_overdue_usd = Decimal("0.00")
     overdue_payments_data = []
     for p in overdue_qs:
         rem = p.remaining_amount
         total_overdue_usd += rem
         days_overdue = (today - p.due_date).days
-        has_prior_unpaid = Payment.objects.filter(
-            contract_id=p.contract_id,
-            month_number__lt=p.month_number,
-        ).exclude(status=Payment.Status.PAID).exists()
+        has_prior_unpaid = min_unpaid_months.get(p.contract_id, 999999) < p.month_number
         overdue_payments_data.append(
             {
                 "id": p.id,
@@ -175,10 +191,7 @@ def get_dashboard_data_for_owner(owner, today=None):
         rem = p.remaining_amount
         total_upcoming_usd += rem
         days_until_due = (p.due_date - today).days
-        has_prior_unpaid = Payment.objects.filter(
-            contract_id=p.contract_id,
-            month_number__lt=p.month_number,
-        ).exclude(status=Payment.Status.PAID).exists()
+        has_prior_unpaid = min_unpaid_months.get(p.contract_id, 999999) < p.month_number
         upcoming_payments_data.append(
             {
                 "id": p.id,
@@ -427,7 +440,7 @@ class BootstrapAPIView(APIView):
 
 
 class DashboardAPIView(APIView):
-    permission_classes = [IsAuthenticated, IsArendator]
+    permission_classes = [IsAuthenticated, IsOnboarded, IsArendatorOnly]
 
     def get(self, request):
         owner = request.user.tenant_owner
@@ -436,7 +449,7 @@ class DashboardAPIView(APIView):
 
 
 class CarListCreateAPIView(APIView):
-    permission_classes = [IsAuthenticated, IsArendator]
+    permission_classes = [IsAuthenticated, IsOnboarded, IsArendatorOnly, IsActiveSubscriptionOrTrial]
 
     def get(self, request):
         owner = request.user.tenant_owner
@@ -472,7 +485,7 @@ class CarListCreateAPIView(APIView):
 
 
 class CarDetailAPIView(APIView):
-    permission_classes = [IsAuthenticated, IsArendator]
+    permission_classes = [IsAuthenticated, IsOnboarded, IsArendatorOnly, IsActiveSubscriptionOrTrial]
 
     def get_object(self, request, pk):
         owner = request.user.tenant_owner
@@ -525,7 +538,7 @@ class CarDetailAPIView(APIView):
 
 
 class DriverListCreateAPIView(APIView):
-    permission_classes = [IsAuthenticated, IsArendator]
+    permission_classes = [IsAuthenticated, IsOnboarded, IsArendatorOnly, IsActiveSubscriptionOrTrial]
 
     def get(self, request):
         owner = request.user.tenant_owner
@@ -543,7 +556,7 @@ class DriverListCreateAPIView(APIView):
 
 
 class DriverDetailAPIView(APIView):
-    permission_classes = [IsAuthenticated, IsArendator]
+    permission_classes = [IsAuthenticated, IsOnboarded, IsArendatorOnly, IsActiveSubscriptionOrTrial]
 
     def get_object(self, request, pk):
         owner = request.user.tenant_owner
@@ -563,7 +576,7 @@ class DriverDetailAPIView(APIView):
 
 
 class ContractCalculateAPIView(APIView):
-    permission_classes = [IsAuthenticated, IsArendator]
+    permission_classes = [IsAuthenticated, IsOnboarded, IsArendatorOnly]
 
     def post(self, request):
         owner = request.user.tenant_owner
@@ -596,7 +609,7 @@ class ContractCalculateAPIView(APIView):
 
 
 class ContractListCreateAPIView(APIView):
-    permission_classes = [IsAuthenticated, IsArendator]
+    permission_classes = [IsAuthenticated, IsOnboarded, IsArendatorOnly, IsActiveSubscriptionOrTrial]
 
     def get(self, request):
         owner = request.user.tenant_owner
@@ -671,7 +684,7 @@ class ContractListCreateAPIView(APIView):
 
 
 class ContractDetailAPIView(APIView):
-    permission_classes = [IsAuthenticated, IsArendator]
+    permission_classes = [IsAuthenticated, IsOnboarded, IsArendatorOnly]
 
     def get(self, request, pk):
         owner = request.user.tenant_owner
@@ -684,7 +697,7 @@ class ContractDetailAPIView(APIView):
 
 
 class ContractCloseAPIView(APIView):
-    permission_classes = [IsAuthenticated, IsArendator]
+    permission_classes = [IsAuthenticated, IsOnboarded, IsArendatorOnly, IsActiveSubscriptionOrTrial]
 
     def post(self, request, pk):
         owner = request.user.tenant_owner
@@ -711,7 +724,7 @@ class ContractCloseAPIView(APIView):
 
 
 class OverduePaymentsAPIView(APIView):
-    permission_classes = [IsAuthenticated, IsArendator]
+    permission_classes = [IsAuthenticated, IsOnboarded, IsArendatorOnly]
 
     def get(self, request):
         owner = request.user.tenant_owner
@@ -726,13 +739,18 @@ class OverduePaymentsAPIView(APIView):
             .order_by("due_date")
         )
 
+        min_unpaid_months = dict(
+            Payment.objects.filter(contract__owner=owner)
+            .exclude(status=Payment.Status.PAID)
+            .values("contract_id")
+            .annotate(min_m=Min("month_number"))
+            .values_list("contract_id", "min_m")
+        )
+
         results = []
         for p in overdue_qs:
             days_overdue = (today - p.due_date).days
-            has_prior_unpaid = Payment.objects.filter(
-                contract_id=p.contract_id,
-                month_number__lt=p.month_number,
-            ).exclude(status=Payment.Status.PAID).exists()
+            has_prior_unpaid = min_unpaid_months.get(p.contract_id, 999999) < p.month_number
             results.append(
                 {
                     "id": p.id,
@@ -756,7 +774,8 @@ class OverduePaymentsAPIView(APIView):
 
 
 class PaymentPayAPIView(APIView):
-    permission_classes = [IsAuthenticated, IsArendator]
+    permission_classes = [IsAuthenticated, IsOnboarded, IsArendatorOnly, IsActiveSubscriptionOrTrial]
+    throttle_classes = [SensitiveActionThrottle]
 
     def post(self, request, pk):
         owner = request.user.tenant_owner
@@ -784,7 +803,8 @@ class PaymentPayAPIView(APIView):
 
 
 class PaymentPostponeAPIView(APIView):
-    permission_classes = [IsAuthenticated, IsArendator]
+    permission_classes = [IsAuthenticated, IsOnboarded, IsArendatorOnly, IsActiveSubscriptionOrTrial]
+    throttle_classes = [SensitiveActionThrottle]
 
     def post(self, request, pk):
         owner = request.user.tenant_owner
@@ -813,7 +833,7 @@ class PaymentPostponeAPIView(APIView):
 
 
 class ExportExcelAPIView(APIView):
-    permission_classes = [IsAuthenticated, IsArendator]
+    permission_classes = [IsAuthenticated, IsOnboarded, IsArendatorOnly]
 
     def get(self, request):
         owner = request.user.tenant_owner
@@ -867,7 +887,7 @@ class ExportExcelAPIView(APIView):
 
 
 class ContractExcelExportAPIView(APIView):
-    permission_classes = [IsAuthenticated, IsArendator]
+    permission_classes = [IsAuthenticated, IsOnboarded, IsArendatorOnly]
 
     def get(self, request, pk):
         role = (getattr(request.user, "role", "") or "").lower()
@@ -939,7 +959,7 @@ class UserScheduleAPIView(APIView):
     """
     Read-only endpoint for User/Ijarachi clients to see their leased car contracts and payment schedules.
     """
-    permission_classes = [IsAuthenticated, IsIjarachi]
+    permission_classes = [IsAuthenticated, IsOnboarded, IsIjarachiOnly]
 
     def get(self, request):
         results = get_user_schedule_data(request.user)
@@ -957,7 +977,7 @@ class ClientDashboardAPIView(APIView):
     - contracts: list of contracts with car info, financials, and payment schedule
     - summary: total_contracts, active_contracts, total_paid_usd, total_remaining_usd, next_payment info
     """
-    permission_classes = [IsAuthenticated, IsIjarachi]
+    permission_classes = [IsAuthenticated, IsOnboarded, IsIjarachiOnly]
 
     def get(self, request):
         contracts = get_user_schedule_data(request.user)
@@ -1010,6 +1030,8 @@ class ClientDashboardAPIView(APIView):
             "phone": user.phone_number or user.phone or "",
             "telegram_id": user.telegram_id,
             "is_onboarded": getattr(user, "is_onboarded", True),
+            "invite_code": getattr(user, "invite_code", "") or (contracts[0].get("invite_code") if contracts else "") or getattr(user, "tenant_code", "") or "",
+            "renter_code": getattr(user, "invite_code", "") or (contracts[0].get("invite_code") if contracts else "") or getattr(user, "tenant_code", "") or "",
         }
 
         return Response({
@@ -1030,7 +1052,7 @@ class ClientContractExcelExportAPIView(APIView):
     Allows an Ijarachi (client) to download their own contract payment schedule as an Excel file,
     or have it sent directly to their Telegram bot chat.
     """
-    permission_classes = [IsAuthenticated, IsIjarachi]
+    permission_classes = [IsAuthenticated, IsOnboarded, IsIjarachiOnly]
 
     def get(self, request, pk):
         contracts = get_user_schedule_data(request.user)

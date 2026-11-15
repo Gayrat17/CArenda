@@ -1,6 +1,7 @@
 from django.urls import path
 from apps.users.views import (
     CompleteOnboardingAPIView,
+    LogoutAPIView,
     MeAPIView,
     PaymentSettingsAPIView,
     SubscriptionRequestAPIView,
@@ -12,6 +13,9 @@ from apps.users.views import (
     SuperadminSettingsAPIView,
     SuperadminSubscriptionRequestsAPIView,
     SuperadminToggleFreezeAPIView,
+    SuperadminToggleMonitoringAPIView,
+    SuperadminTriggerNotificationsAPIView,
+    SwitchRoleAPIView,
     TelegramAuthAPIView,
     VerifyInviteCodeAPIView,
 )
@@ -19,6 +23,9 @@ from apps.users.views import (
 urlpatterns = [
     path('me/', MeAPIView.as_view(), name='user-me'),
     path('auth/telegram/', TelegramAuthAPIView.as_view(), name='auth-telegram'),
+    path('auth/logout/', LogoutAPIView.as_view(), name='auth-logout'),
+    path('auth/switch-role/', SwitchRoleAPIView.as_view(), name='auth-switch-role'),
+    path('auth/reset-role/', SwitchRoleAPIView.as_view(), name='auth-reset-role'),
     path('auth/verify-code/', VerifyInviteCodeAPIView.as_view(), name='auth-verify-code'),
     path('auth/verify-invite-code/', VerifyInviteCodeAPIView.as_view(), name='auth-verify-invite-code'),
     path('auth/complete-onboarding/', CompleteOnboardingAPIView.as_view(), name='auth-complete-onboarding'),
@@ -30,9 +37,11 @@ urlpatterns = [
     # Superadmin APIs
     path('superadmin/arendators/', SuperadminArendatorsAPIView.as_view(), name='superadmin-arendators'),
     path('superadmin/arendators/<int:pk>/toggle-freeze/', SuperadminToggleFreezeAPIView.as_view(), name='superadmin-toggle-freeze'),
+    path('superadmin/arendators/<int:pk>/toggle-monitoring/', SuperadminToggleMonitoringAPIView.as_view(), name='superadmin-toggle-monitoring'),
     path('superadmin/arendators/<int:pk>/grant-subscription/', SuperadminGrantSubscriptionAPIView.as_view(), name='superadmin-grant-subscription'),
     path('superadmin/settings/', SuperadminSettingsAPIView.as_view(), name='superadmin-settings'),
     path('superadmin/requests/', SuperadminSubscriptionRequestsAPIView.as_view(), name='superadmin-requests'),
     path('superadmin/requests/<int:pk>/approve/', SuperadminApproveRequestAPIView.as_view(), name='superadmin-request-approve'),
     path('superadmin/requests/<int:pk>/reject/', SuperadminRejectRequestAPIView.as_view(), name='superadmin-request-reject'),
+    path('superadmin/trigger-notifications/', SuperadminTriggerNotificationsAPIView.as_view(), name='superadmin-trigger-notifications'),
 ]

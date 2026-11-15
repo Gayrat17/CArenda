@@ -52,6 +52,10 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       BOT_TOKEN: ${BOT_TOKEN:-}
       WEBAPP_URL: ${WEBAPP_URL:-http://localhost:3000}
+      SUPERADMIN_TELEGRAM_IDS: ${SUPERADMIN_TELEGRAM_IDS:-}
+      ADMIN_TELEGRAM_ID: ${ADMIN_TELEGRAM_ID:-}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-}
     ports:
       - "8000:8000"
     volumes:
@@ -86,6 +90,10 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       BOT_TOKEN: ${BOT_TOKEN:-}
       WEBAPP_URL: ${WEBAPP_URL:-http://localhost:3000}
+      SUPERADMIN_TELEGRAM_IDS: ${SUPERADMIN_TELEGRAM_IDS:-}
+      ADMIN_TELEGRAM_ID: ${ADMIN_TELEGRAM_ID:-}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-}
     depends_on:
       db:
         condition: service_healthy
@@ -112,6 +120,10 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       BOT_TOKEN: ${BOT_TOKEN:-}
       WEBAPP_URL: ${WEBAPP_URL:-http://localhost:3000}
+      SUPERADMIN_TELEGRAM_IDS: ${SUPERADMIN_TELEGRAM_IDS:-}
+      ADMIN_TELEGRAM_ID: ${ADMIN_TELEGRAM_ID:-}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-}
     depends_on:
       db:
         condition: service_healthy
@@ -136,6 +148,10 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       BOT_TOKEN: ${BOT_TOKEN:-}
       WEBAPP_URL: ${WEBAPP_URL:-http://localhost:3000}
+      SUPERADMIN_TELEGRAM_IDS: ${SUPERADMIN_TELEGRAM_IDS:-}
+      ADMIN_TELEGRAM_ID: ${ADMIN_TELEGRAM_ID:-}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-}
     depends_on:
       db:
         condition: service_healthy

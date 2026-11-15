@@ -40,6 +40,10 @@ export interface SuperadminKpi {
   expired: number;
   frozen: number;
   pending_requests: number;
+  total_cars?: number;
+  total_contracts?: number;
+  active_contracts?: number;
+  total_drivers?: number;
 }
 
 export interface SuperadminArendatorItem {
@@ -55,6 +59,7 @@ export interface SuperadminArendatorItem {
   cars_count: number;
   active_contracts_count: number;
   is_frozen: boolean;
+  can_monitor_renters?: boolean;
   is_superuser: boolean;
   is_onboarded: boolean;
   is_subscription_active: boolean;

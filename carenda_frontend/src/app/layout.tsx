@@ -14,8 +14,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Carenda",
-  description: "Avtomobil arendasi boshqaruv tizimi",
+  title: "Carenda — Avtomobil arendasi boshqaruv tizimi",
+  description: "Avtomobil arendasi va to'lovlar monitoringi tizimi",
+  icons: {
+    icon: "/icon.png",
+    apple: "/icon.png",
+  },
 };
 
 export const viewport: Viewport = {

@@ -123,6 +123,8 @@ export interface ClientDashboardResponse {
     phone: string;
     telegram_id: number | null;
     is_onboarded: boolean;
+    invite_code?: string;
+    renter_code?: string;
   };
   contracts: ClientContract[];
   summary: ClientDashboardSummary;

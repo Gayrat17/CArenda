@@ -334,6 +334,8 @@ class Payment(models.Model):
         verbose_name_plural = "Payments"
         indexes = [
             models.Index(fields=["contract", "status", "due_date"]),
+            models.Index(fields=["contract", "due_date"]),
+            models.Index(fields=["contract", "month_number"]),
             models.Index(fields=["status", "due_date"]),
         ]
 

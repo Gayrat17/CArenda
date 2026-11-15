@@ -72,11 +72,22 @@ export function CarendaApp() {
   // Single-request bootstrap call to eliminate multiple roundtrips
   const loadData = useCallback(async (forceRefresh = false) => {
     try {
+      if (typeof window !== "undefined" && window.sessionStorage.getItem("carenda_logged_out") === "true") {
+        router.replace("/login?logged_out=1");
+        setLoading(false);
+        return;
+      }
+
       const boot = await getBootstrap({ forceRefresh });
       if (boot?.me) {
         setUser(boot.me);
         if (!boot.me.is_onboarded) {
           router.replace("/login");
+          setLoading(false);
+          return;
+        }
+        if (boot.me.role === "superadmin" || boot.me.is_superuser || boot.me.is_superadmin) {
+          router.replace("/superadmin");
           setLoading(false);
           return;
         }

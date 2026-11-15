@@ -31,7 +31,10 @@ import {
   cleanPhoneNumber,
   initiatePhoneCall,
   formatUzbekPhone,
+  validateUzbekPhone,
+  cleanPhoneForBackend,
 } from "@/lib/utils";
+import { UzbekPhoneInput } from "./UzbekPhoneInput";
 import { CloseContractModal } from "./CloseContractModal";
 
 interface CarDetailModalProps {
@@ -70,12 +73,18 @@ export function CarDetailModal({
 
       let phoneToSave = "";
       if (national.length > 0) {
-        if (national.length !== 9) {
-          alert("Qo'shimcha telefon raqami to'liq kiritilishi shart (+998 XX XXX XX XX) yoki bo'sh qoldiring.");
+        const phoneInfo = validateUzbekPhone(secondaryPhoneInput);
+        if (phoneInfo.hasOperator && !phoneInfo.isValidOperator) {
+          alert("Qo'shimcha telefon raqamida noto'g'ri operator kodi kiritildi.");
           setSavingSecondaryPhone(false);
           return;
         }
-        phoneToSave = secondaryPhoneInput.trim();
+        if (!phoneInfo.isValid) {
+          alert("Qo'shimcha telefon raqami to'liq kiritilishi shart (+998 (XX) XXX-XX-XX) yoki bo'sh qoldiring.");
+          setSavingSecondaryPhone(false);
+          return;
+        }
+        phoneToSave = cleanPhoneForBackend(secondaryPhoneInput);
       }
 
       await updateDriver(activeContract.driver, { secondary_phone: phoneToSave });
@@ -392,12 +401,10 @@ export function CarDetailModal({
                               ixtiyoriy
                             </span>
                           </div>
-                          <input
-                            type="tel"
+                          <UzbekPhoneInput
                             value={secondaryPhoneInput}
-                            onChange={(e) => setSecondaryPhoneInput(formatUzbekPhone(e.target.value, false))}
-                            placeholder="+998 90 123 45 67"
-                            className="w-full px-3 py-2 text-xs font-mono font-bold bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                            onChange={(formatted) => setSecondaryPhoneInput(formatted)}
+                            placeholder="+998 (90) 123-45-67"
                           />
                           <div className="flex items-center justify-between pt-1">
                             {activeContract.driver_secondary_phone ? (

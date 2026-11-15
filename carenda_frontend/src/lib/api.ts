@@ -77,7 +77,14 @@ export function clearApiCache(): void {
       const prefix = `${STORAGE_PREFIX}${userId}`;
       for (let i = window.localStorage.length - 1; i >= 0; i--) {
         const key = window.localStorage.key(i);
-        if (key && (key.startsWith(prefix) || key.startsWith("carenda_bootstrap_"))) {
+        if (
+          key &&
+          key !== "carenda_onboarding_seen" &&
+          (key.startsWith(prefix) ||
+            key.startsWith("carenda_bootstrap_") ||
+            key.startsWith("carenda_cache_") ||
+            key.startsWith("carenda_"))
+        ) {
           window.localStorage.removeItem(key);
         }
       }
@@ -86,6 +93,103 @@ export function clearApiCache(): void {
     }
   }
 }
+
+/**
+ * Universal logout handler:
+ * - Informs backend at /auth/logout/ to invalidate sessions and tenant cache
+ * - Purges all local storage, session storage, memory cache, and cookies
+ * - Sets carenda_logged_out marker so login page does not auto-redirect
+ * - Executes hard replace to /login?logged_out=1
+ */
+export async function logout(): Promise<void> {
+  try {
+    await apiFetch("/auth/logout/", { method: "POST", forceRefresh: true });
+  } catch (err) {
+    console.warn("Backend logout request completed with note:", err);
+  } finally {
+    clearApiCache();
+    if (typeof window !== "undefined") {
+      try {
+        const authKeys = [
+          "access_token",
+          "refresh_token",
+          "token",
+          "jwt",
+          "user_role",
+          "role",
+          "renter_code",
+          "user_data",
+          "carenda_auth_token",
+          "carenda_role",
+          "carenda_user",
+        ];
+        authKeys.forEach((k) => {
+          window.localStorage.removeItem(k);
+          window.sessionStorage.removeItem(k);
+        });
+
+        for (let i = window.localStorage.length - 1; i >= 0; i--) {
+          const key = window.localStorage.key(i);
+          if (
+            key &&
+            key !== "carenda_onboarding_seen" &&
+            (key.startsWith("carenda_") || key.startsWith("carenda-"))
+          ) {
+            window.localStorage.removeItem(key);
+          }
+        }
+        for (let i = window.sessionStorage.length - 1; i >= 0; i--) {
+          const key = window.sessionStorage.key(i);
+          if (key && (key.startsWith("carenda_") || key.startsWith("carenda-"))) {
+            window.sessionStorage.removeItem(key);
+          }
+        }
+
+        window.sessionStorage.setItem("carenda_logged_out", "true");
+
+        document.cookie.split(";").forEach((cookie) => {
+          const eqPos = cookie.indexOf("=");
+          const name = eqPos > -1 ? cookie.substring(0, eqPos).trim() : cookie.trim();
+          if (name) {
+            document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;`;
+          }
+        });
+      } catch (e) {
+        console.error("Storage cleanup failed:", e);
+      }
+
+      window.location.replace("/login?logged_out=1");
+    }
+  }
+}
+
+/**
+ * Resets user onboarding and role state on backend and client,
+ * safely allowing the user to select Arendator or Ijarachi anew.
+ */
+export async function switchRole(): Promise<void> {
+  try {
+    await apiFetch("/auth/switch-role/", { method: "POST", forceRefresh: true });
+  } catch (err) {
+    console.warn("Backend switch-role request note:", err);
+  } finally {
+    clearApiCache();
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage.removeItem("user_role");
+        window.localStorage.removeItem("role");
+        window.localStorage.removeItem("renter_code");
+        window.sessionStorage.removeItem("user_role");
+        window.sessionStorage.setItem("carenda_switch_role", "true");
+        window.sessionStorage.setItem("carenda_logged_out", "true");
+      } catch {
+        // ignore
+      }
+      window.location.replace("/login?switch_role=1");
+    }
+  }
+}
+
 
 /**
  * Synchronously reads the cached Bootstrap payload from memory or localStorage.
@@ -687,6 +791,18 @@ export async function toggleArendatorFreeze(
   );
 }
 
+export async function toggleArendatorMonitoring(
+  id: number
+): Promise<{ detail: string; arendator: import("@/types/subscription").SuperadminArendatorItem }> {
+  return apiFetch<{ detail: string; arendator: import("@/types/subscription").SuperadminArendatorItem }>(
+    `/superadmin/arendators/${id}/toggle-monitoring/`,
+    {
+      method: "POST",
+      body: JSON.stringify({}),
+    }
+  );
+}
+
 export async function grantArendatorSubscription(
   id: number,
   days = 30
@@ -742,6 +858,13 @@ export async function rejectSuperadminRequest(
     `/superadmin/requests/${id}/reject/`,
     { method: "POST", body: JSON.stringify({ reason }) }
   );
+}
+
+export async function triggerNotifications(): Promise<{ detail: string }> {
+  return apiFetch<{ detail: string }>("/superadmin/trigger-notifications/", {
+    method: "POST",
+    forceRefresh: true,
+  });
 }
 
 

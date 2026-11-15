@@ -58,17 +58,38 @@ export function parseMoneyValue(value: string | number | null | undefined): numb
   return isNaN(num) ? 0 : num;
 }
 
+export const UZBEK_OPERATOR_CODES = [
+  "90", "91", "93", "94", "95", "97", "98", "99",
+  "33", "50", "55", "71", "77", "78", "88",
+] as const;
+
+export const UZBEK_REGION_CODES: Record<string, string> = {
+  "01": "Toshkent shahri",
+  "10": "Toshkent viloyati",
+  "20": "Sirdaryo viloyati",
+  "25": "Jizzax viloyati",
+  "30": "Samarqand viloyati",
+  "40": "Farg'ona viloyati",
+  "50": "Namangan viloyati",
+  "60": "Andijon viloyati",
+  "70": "Qashqadaryo viloyati",
+  "75": "Surxondaryo viloyati",
+  "80": "Buxoro viloyati",
+  "85": "Navoiy viloyati",
+  "90": "Xorazm viloyati",
+  "95": "Qoraqalpog'iston R.",
+};
+
 const CYRILLIC_TO_LATIN_MAP: Record<string, string> = {
   А: "A", В: "B", С: "C", Е: "E", Н: "H", К: "K",
-  М: "M", О: "O", Р: "P", Т: "T", Х: "X", У: "Y"
+  М: "M", О: "O", Р: "P", Т: "T", Х: "X", У: "Y",
 };
 
 /**
  * Formats car license plate in Uzbekistan standard formats:
- * - Individual: 01 A 777 AA (2 digits, 1 letter, 3 digits, 2 letters)
- * - Legal entity: 01 777 AAA (2 digits, 3 digits, 3 letters)
- * - Trailer / other: 01 1234 AA (2 digits, 4 digits, 2 letters)
- * Auto-converts Cyrillic keyboard characters to Latin and strictly enforces valid sequence.
+ * - Individual: 01 A 777 AA (2 digits region + 1 Latin letter + 3 digits + 2 Latin letters)
+ * - Legal entity: 01 777 AAA (2 digits region + 3 digits + 3 Latin letters)
+ * Auto-converts Cyrillic keyboard characters to uppercase Latin and strictly formats spacing.
  */
 export function formatPlateNumber(value: string): string {
   if (!value) return "";
@@ -79,7 +100,7 @@ export function formatPlateNumber(value: string): string {
   const raw = clean.replace(/[^A-Z0-9]/g, "");
   if (!raw) return "";
 
-  // Plate must start with region code digits (01-99)
+  // Plate must start with region code digits
   const startDigits = raw.replace(/^[^0-9]+/, "");
   if (!startDigits) return "";
 
@@ -91,50 +112,108 @@ export function formatPlateNumber(value: string): string {
   if (/^[A-Z]/.test(rest)) {
     const letter1 = rest[0];
     const afterLetter1 = rest.slice(1);
-    const digitsMatch = afterLetter1.match(/^(\d{1,3})/);
-    const digits = digitsMatch ? digitsMatch[1] : "";
-    let afterDigits = "";
-    if (digits.length === 3) {
-      afterDigits = afterLetter1.slice(digits.length).replace(/[^A-Z]/g, "").slice(0, 2);
-    }
+    const digitsPart = (afterLetter1.match(/^\d{1,3}/) || [""])[0];
+    const afterDigits = afterLetter1.slice(digitsPart.length).replace(/[^A-Z]/g, "").slice(0, 2);
 
     let res = region + " " + letter1;
-    if (digits) res += " " + digits;
+    if (digitsPart) res += " " + digitsPart;
     if (afterDigits) res += " " + afterDigits;
     return res;
-  } else {
-    // Case B: 3rd character is a digit (Legal: 01 777 AAA or Trailer: 01 1234 AA)
-    const digitsMatch = rest.match(/^(\d{1,4})/);
-    const digits = digitsMatch ? digitsMatch[1] : "";
-    let afterDigits = "";
-    if (digits.length >= 3) {
-      afterDigits = rest.slice(digits.length).replace(/[^A-Z]/g, "").slice(0, 3);
-    }
+  } else if (/^\d/.test(rest)) {
+    // Case B: 3rd character is a digit (Legal entity: 01 777 AAA)
+    const digitsPart = (rest.match(/^\d{1,3}/) || [""])[0];
+    const afterDigits = rest.slice(digitsPart.length).replace(/[^A-Z]/g, "").slice(0, 3);
 
-    let res = region + (digits ? " " + digits : "");
+    let res = region + " " + digitsPart;
     if (afterDigits) res += " " + afterDigits;
     return res;
   }
+
+  return region;
+}
+
+export interface UzbekPlateInfo {
+  clean: string;
+  region: string;
+  hasRegion: boolean;
+  isRegionValid: boolean;
+  regionName: string | null;
+  plateType: "individual" | "legal" | null;
+  isComplete: boolean;
+  isValid: boolean;
+  error: string | null;
 }
 
 /**
- * Validates if the plate number matches Uzbekistan vehicle formats.
+ * Returns comprehensive region, type and validation metadata for Uzbekistan vehicle plate.
+ */
+export function getUzbekPlateInfo(plate: string | null | undefined): UzbekPlateInfo {
+  if (!plate || !plate.trim()) {
+    return {
+      clean: "",
+      region: "",
+      hasRegion: false,
+      isRegionValid: false,
+      regionName: null,
+      plateType: null,
+      isComplete: false,
+      isValid: false,
+      error: null,
+    };
+  }
+
+  const clean = plate.trim().toUpperCase();
+  const raw = clean.replace(/[^A-Z0-9]/g, "");
+  const region = raw.slice(0, 2);
+  const hasRegion = region.length === 2 && /^\d{2}$/.test(region);
+  const regionName = hasRegion ? (UZBEK_REGION_CODES[region] || null) : null;
+  const isRegionValid = Boolean(regionName);
+
+  const isIndividual = /^\d{2}\s?[A-Z]\s?\d{3}\s?[A-Z]{2}$/.test(clean);
+  const isLegal = /^\d{2}\s?\d{3}\s?[A-Z]{3}$/.test(clean);
+
+  const plateType: "individual" | "legal" | null = isIndividual
+    ? "individual"
+    : isLegal
+    ? "legal"
+    : /^\d{2}\s?[A-Z]/.test(clean)
+    ? "individual"
+    : /^\d{2}\s?\d/.test(clean)
+    ? "legal"
+    : null;
+
+  const isComplete = isIndividual || isLegal;
+  const isValid = isRegionValid && isComplete;
+
+  let error: string | null = null;
+  if (hasRegion && !isRegionValid) {
+    error = "Mavjud bo'lmagan hudud kodi";
+  } else if (raw.length > 2 && !isComplete) {
+    error = "Format: 01 A 777 AA yoki 01 777 AAA";
+  }
+
+  return {
+    clean,
+    region,
+    hasRegion,
+    isRegionValid,
+    regionName,
+    plateType,
+    isComplete,
+    isValid,
+    error,
+  };
+}
+
+/**
+ * Validates if the plate number matches Uzbekistan vehicle formats and has valid region code.
  */
 export function isValidPlateNumber(plate: string | null | undefined): boolean {
-  if (!plate) return false;
-  const clean = plate.replace(/\s+/g, "").toUpperCase();
-  // Individual: 01A123AA
-  const individualRegex = /^\d{2}[A-Z]\d{3}[A-Z]{2}$/;
-  // Legal entity: 01123AAA
-  const legalRegex = /^\d{2}\d{3}[A-Z]{3}$/;
-  // Trailer/Motorcycle: 011234AA
-  const specialRegex = /^\d{2}\d{4}[A-Z]{2}$/;
-
-  return individualRegex.test(clean) || legalRegex.test(clean) || specialRegex.test(clean);
+  return getUzbekPlateInfo(plate).isValid;
 }
 
 /**
- * Formats Uzbekistan mobile phone number as: +998 XX XXX XX XX
+ * Formats Uzbekistan mobile phone number as: +998 (XX) XXX-XX-XX
  * Prefix +998 cannot be modified or deleted.
  * When allowEmpty is true, returns empty string if no digits are entered.
  */
@@ -160,35 +239,95 @@ export function formatUzbekPhone(value: string, allowEmpty = false): string {
     return "";
   }
 
-  let formatted = "+998 ";
   if (digits.length === 0) {
-    return formatted;
+    return "+998 ";
   }
 
-  formatted += digits.slice(0, 2);
-  if (digits.length > 2) {
-    formatted += " " + digits.slice(2, 5);
-  }
-  if (digits.length > 5) {
-    formatted += " " + digits.slice(5, 7);
-  }
-  if (digits.length > 7) {
-    formatted += " " + digits.slice(7, 9);
+  if (digits.length <= 2) {
+    return `+998 (${digits}`;
   }
 
-  return formatted;
+  if (digits.length <= 5) {
+    return `+998 (${digits.slice(0, 2)}) ${digits.slice(2)}`;
+  }
+
+  if (digits.length <= 7) {
+    return `+998 (${digits.slice(0, 2)}) ${digits.slice(2, 5)}-${digits.slice(5)}`;
+  }
+
+  return `+998 (${digits.slice(0, 2)}) ${digits.slice(2, 5)}-${digits.slice(5, 7)}-${digits.slice(7, 9)}`;
+}
+
+export interface UzbekPhoneInfo {
+  digits: string;
+  operator: string;
+  hasOperator: boolean;
+  isValidOperator: boolean;
+  isComplete: boolean;
+  isValid: boolean;
+  backendPhone: string;
+  error: string | null;
 }
 
 /**
- * Validates if the phone number contains complete 9 national digits (+998 XX XXX XX XX).
+ * Validates Uzbekistan phone number for valid operator code and completeness.
  */
-export function isValidUzbekPhone(phone: string | null | undefined): boolean {
-  if (!phone) return false;
+export function validateUzbekPhone(phone: string | null | undefined): UzbekPhoneInfo {
+  let digits = (phone || "").replace(/\D/g, "");
+  if (digits.startsWith("998")) {
+    digits = digits.slice(3);
+  } else if (digits.startsWith("8") && digits.length === 10) {
+    digits = digits.slice(1);
+  }
+  digits = digits.slice(0, 9);
+
+  const operator = digits.slice(0, 2);
+  const hasOperator = digits.length >= 2;
+  const isValidOperator = !hasOperator || (UZBEK_OPERATOR_CODES as readonly string[]).includes(operator);
+  const isComplete = digits.length === 9;
+  const isValid = isComplete && isValidOperator;
+  const backendPhone = digits.length === 9 ? `+998${digits}` : "";
+
+  let error: string | null = null;
+  if (hasOperator && !isValidOperator) {
+    error = "Noto'g'ri operator kodi kiritildi";
+  } else if (!isComplete && digits.length > 0) {
+    error = "Telefon raqami to'liq kiritilishi shart";
+  }
+
+  return {
+    digits,
+    operator,
+    hasOperator,
+    isValidOperator,
+    isComplete,
+    isValid,
+    backendPhone,
+    error,
+  };
+}
+
+/**
+ * Cleans phone number to standard backend format: +998XXXXXXXXX (no spaces or formatting characters).
+ */
+export function cleanPhoneForBackend(phone: string | null | undefined): string {
+  if (!phone) return "";
   let digits = phone.replace(/\D/g, "");
   if (digits.startsWith("998")) {
     digits = digits.slice(3);
+  } else if (digits.startsWith("8") && digits.length === 10) {
+    digits = digits.slice(1);
   }
-  return digits.length === 9;
+  digits = digits.slice(0, 9);
+  return digits.length === 9 ? `+998${digits}` : "";
+}
+
+/**
+ * Validates if the phone number contains valid operator code and complete 9 national digits.
+ */
+export function isValidUzbekPhone(phone: string | null | undefined): boolean {
+  if (!phone) return false;
+  return validateUzbekPhone(phone).isValid;
 }
 
 /**
