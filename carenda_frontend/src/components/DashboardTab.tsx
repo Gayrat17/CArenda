@@ -167,19 +167,14 @@ export function DashboardTab({
               )}
             </div>
 
-            {/* Telegram ID + Phone */}
-            <div className="flex items-center gap-2 text-[11px] font-mono text-slate-400 flex-wrap pt-0.5">
-              {identity.telegramId && (
-                <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md font-semibold">
-                  ID: {identity.telegramId}
-                </span>
-              )}
-              {identity.phone && (
+            {/* Phone */}
+            {identity.phone && (
+              <div className="flex items-center gap-2 text-[11px] text-slate-400 flex-wrap pt-0.5">
                 <span className="text-slate-500 font-sans font-medium">
                   📞 {identity.phone}
                 </span>
-              )}
-            </div>
+              </div>
+            )}
           </div>
 
           {/* Subscription Badge + Superadmin Switcher */}

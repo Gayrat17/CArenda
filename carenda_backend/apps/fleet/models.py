@@ -4,8 +4,9 @@ import string
 from decimal import Decimal
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db import models
+from django.db import IntegrityError, models, transaction
 
 
 def generate_contract_invite_code() -> str:
@@ -224,6 +225,15 @@ class Contract(models.Model):
         db_index=True,
         verbose_name="Shartnoma maxsus kodi",
     )
+    contract_code = models.CharField(
+        max_length=20,
+        unique=True,
+        null=True,
+        blank=True,
+        db_index=True,
+        editable=False,
+        verbose_name="Shartnoma kodi (CRD-YYYY-XXXXX)",
+    )
     closed_at = models.DateTimeField(
         null=True, blank=True, verbose_name="Closed At"
     )
@@ -261,10 +271,47 @@ class Contract(models.Model):
         if not self.invite_code:
             self.invite_code = generate_contract_invite_code()
         self.calculate_totals()
-        super().save(*args, **kwargs)
+
+        # Enforce immutability on subsequent updates
+        if self.pk:
+            orig = Contract.objects.filter(pk=self.pk).values_list("contract_code", flat=True).first()
+            if orig and self.contract_code != orig:
+                raise ValidationError("contract_code is immutable and cannot be modified.")
+
+        # Generate contract_code only on initial creation
+        if not self.contract_code:
+            self._save_with_contract_code(*args, **kwargs)
+        else:
+            super().save(*args, **kwargs)
+
+    def _save_with_contract_code(self, *args, max_retries: int = 10, **kwargs):
+        """Attempt to save with a unique contract_code, retrying on collision.
+
+        Uses ``transaction.atomic()`` savepoints so that an IntegrityError
+        from a duplicate ``contract_code`` does not break the outer
+        transaction.
+        """
+        from apps.fleet.contract_code import generate_contract_code
+
+        for attempt in range(max_retries):
+            self.contract_code = generate_contract_code()
+            try:
+                with transaction.atomic():
+                    super().save(*args, **kwargs)
+                return  # success
+            except IntegrityError:
+                if attempt == max_retries - 1:
+                    raise RuntimeError(
+                        f"Could not generate a unique contract_code after "
+                        f"{max_retries} attempts."
+                    )
 
     def __str__(self):
         return f"Contract #{self.pk or 'New'} - {self.car} / {self.driver}"
+
+
+# Canonical alias for Contract model
+RentalContract = Contract
 
 
 class Payment(models.Model):

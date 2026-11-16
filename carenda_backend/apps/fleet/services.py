@@ -9,7 +9,8 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.bot.tasks import send_payment_receipt_notification_task
-from apps.fleet.models import Car, Contract, Driver, Payment
+from apps.fleet.contract_code import generate_contract_code
+from apps.fleet.models import Car, Contract, Driver, Payment, RentalContract
 from apps.users.models import User, UserSetting
 
 

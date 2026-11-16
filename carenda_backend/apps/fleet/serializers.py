@@ -131,6 +131,7 @@ class ContractSummarySerializer(serializers.ModelSerializer):
         model = Contract
         fields = [
             "id",
+            "contract_code",
             "invite_code",
             "car",
             "car_name",
